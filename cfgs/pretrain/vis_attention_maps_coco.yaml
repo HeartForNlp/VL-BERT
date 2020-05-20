@@ -27,7 +27,7 @@ DATASET:
   MASK_SIZE: 14
 
 NETWORK:
-  PARTIAL_PRETRAIN: "./model/pretrained_model/vl-bert-base-e2e.model"
+  PARTIAL_PRETRAIN: "./output/vl-bert/vgp/large_hard_v1/base_4x16G_fp32/flickr30k-images_train/vl-bert_base_a_res101-best.model"
   PARTIAL_PRETRAIN_PREFIX_CHANGES: []
   IMAGE_NUM_LAYERS: 101
   IMAGE_C5_DILATED: true
