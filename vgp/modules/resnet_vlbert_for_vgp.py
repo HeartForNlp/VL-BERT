@@ -24,6 +24,7 @@ class ResNetVLBERT(Module):
         self.cnn_loss_top = config.NETWORK.CNN_LOSS_TOP
         self.align_caption_img = config.DATASET.ALIGN_CAPTION_IMG
         self.use_phrasal_paraphrases = config.DATASET.USE_PHRASAL_PARAPHRASES
+        self.supervise_attention = config.NETWORK.SUPERVISE_ATTENTION
         if not config.NETWORK.BLIND:
             self.image_feature_extractor = FastRCNN(config,
                                                     average_pool=True,
@@ -259,14 +260,28 @@ class ResNetVLBERT(Module):
         # Visual Linguistic BERT
         if self.config.NETWORK.NO_OBJ_ATTENTION or self.config.NETWORK.BLIND:
             box_mask.zero_()
-        hidden_states_text, hidden_states_objects, pooled_rep = self.vlbert(text_input_ids,
-                                                                            text_token_type_ids,
-                                                                            text_visual_embeddings,
-                                                                            text_mask,
-                                                                            object_vl_embeddings,
-                                                                            box_mask,
-                                                                            output_all_encoded_layers=False,
-                                                                            output_text_and_object_separately=True)
+
+        if self.supervise_attention:
+            hidden_states_text, hidden_states_objects, pooled_rep, attention_probs = \
+                self.vlbert(text_input_ids,
+                            text_token_type_ids,
+                            text_visual_embeddings,
+                            text_mask,
+                            object_vl_embeddings,
+                            box_mask,
+                            output_all_encoded_layers=False,
+                            output_text_and_object_separately=True,
+                            output_attention_probs=self.supervise_attention)
+        else:
+            hidden_states_text, hidden_states_objects, pooled_rep = self.vlbert(text_input_ids,
+                                                                                text_token_type_ids,
+                                                                                text_visual_embeddings,
+                                                                                text_mask,
+                                                                                object_vl_embeddings,
+                                                                                box_mask,
+                                                                                output_all_encoded_layers=False,
+                                                                                output_text_and_object_separately=True,
+                                                                                output_attention_probs=False)
 
         ###########################################
         outputs = {}
