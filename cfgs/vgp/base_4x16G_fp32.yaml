@@ -71,6 +71,7 @@ NETWORK:
   PHRASE_LOSS_WEIGHT: 1.0
   CNN_LOSS_TOP: false
   NO_GROUNDING: true
+  SUPERVISE_ATTENTION: false
 
   VLBERT:
     input_transform_type: 1
