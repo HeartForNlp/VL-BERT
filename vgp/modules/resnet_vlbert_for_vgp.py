@@ -2,6 +2,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import pdb
 
 import sys
 root_path = os.path.abspath(os.getcwd())
@@ -196,10 +197,9 @@ class ResNetVLBERT(Module):
         # Don't know what segments are for
         # segms = masks
         
-        # For now use all boxes
-        box_mask = torch.ones(boxes[:, :, -1].size(), dtype=torch.uint8, device=boxes.device)
-
+        box_mask = (boxes[:, :, -1] > - 0.5)
         max_len = int(box_mask.sum(1).max().item())
+
         box_mask = box_mask[:, :max_len]
         boxes = boxes[:, :max_len].type(torch.float32)
 
@@ -245,8 +245,9 @@ class ResNetVLBERT(Module):
 
         # Add visual feature to text elements
         if self.config.NETWORK.NO_GROUNDING:
-            text_tags.zero_()
-        text_visual_embeddings = self._collect_obj_reps(text_tags, obj_reps['obj_reps'])
+            text_visual_embeddings = self._collect_obj_reps(text_tags.new_zeros(text_tags.size()), obj_reps['obj_reps'])
+        else:
+            text_visual_embeddings = self._collect_obj_reps(text_tags, obj_reps['obj_reps'])
         # Add textual feature to image element
         if self.config.NETWORK.BLIND:
             object_linguistic_embeddings = boxes.new_zeros((*boxes.shape[:-1], self.config.NETWORK.VLBERT.hidden_size))
@@ -306,8 +307,34 @@ class ResNetVLBERT(Module):
         # h_rep_ph2 = hidden_states_text[:, ph2_mask, :].max(axis=1)
         # final_rep = torch.cat((h_rep_ph1, h_rep_ph2, torch.abs(h_rep_ph2 - h_rep_ph1), torch.mul(h_rep_ph1, h_rep_ph2)),
         #                       axis=1)
+        
+        attention_loss = torch.tensor([0], dtype=torch.float32).mean()
+        if self.supervise_attention:
+            attention_loss = attention_loss.new_zeros((len(attention_probs)))
+            grounded_words = torch.cat(((text_tags > 0), text_tags.new_zeros((text_tags.size(0), attention_probs[0].size(-1) - text_tags.size(1)), dtype=torch.uint8)), dim=1)
+            epsilon = 10e-6
+            for i, attention in enumerate(attention_probs):
+                if text_tags[i].sum() == 0:
+                    attention_loss[i] = 0
+                    continue
+                else:
+                    boxes_pos = torch.cat((box_mask.new_zeros((box_mask.size(0), attention_probs[0].size(-1) - 1 - box_mask.size(1)), dtype=torch.uint8), box_mask, box_mask.new_zeros((box_mask.size(0), 1), dtype=torch.uint8)), dim=1)
+                    pred_attention = attention[:, :, grounded_words[i]][:, :, :, boxes_pos[i]]
+                    normalized_log_attention = torch.log(epsilon + pred_attention / (pred_attention.sum(-1, keepdim=True) + epsilon))
+                    n_layers = attention.size(0)
+                    n_heads = attention.size(1)
+                    attention_label = text_tags[i][text_tags[i] > 0]
+                    # broadcast labels to same shape as attention
+                    attention_label = attention_label.unsqueeze(0).unsqueeze(0).repeat((n_layers, n_heads, 1))
+                    # flatten both attention and labels with respect to layers and heads
+                    normalized_log_attention = normalized_log_attention.view((-1, pred_attention.size(-1)))
+                    attention_label = attention_label.view((-1))
+                    attention_loss[i] = F.nll_loss(normalized_log_attention, attention_label, reduction="sum")
+            # Average loss across all images and all grounded words
+            attention_loss = attention_loss.sum() / grounded_words.sum()
+            output.update({"attention_loss": attention_loss})
 
-        loss = sentence_cls_loss.mean() + self.config.NETWORK.PHRASE_LOSS_WEIGHT * phrase_cls_loss.mean()
+        loss = sentence_cls_loss.mean() + self.config.NETWORK.PHRASE_LOSS_WEIGHT * phrase_cls_loss.mean() + self.config.NETWORK.ATTENTION_LOSS_WEIGHT * attention_loss
 
         return outputs, loss
 

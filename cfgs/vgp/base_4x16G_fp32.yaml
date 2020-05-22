@@ -1,6 +1,6 @@
 ---
 RNG_SEED: 12345
-OUTPUT_PATH: './output/vl-bert/vgp/version2_NG_e2e_aligncaptimg/'
+OUTPUT_PATH: './output/vl-bert/vgp/debug_attention/'
 MODULE: ResNetVLBERT
 GPUS: '0,1,2,3,4,5'
 LOG_FREQUENT: 100
@@ -71,7 +71,8 @@ NETWORK:
   PHRASE_LOSS_WEIGHT: 1.0
   CNN_LOSS_TOP: false
   NO_GROUNDING: true
-  SUPERVISE_ATTENTION: false
+  SUPERVISE_ATTENTION: true
+  ATTENTION_LOSS_WEIGHT: 1.0
 
   VLBERT:
     input_transform_type: 1

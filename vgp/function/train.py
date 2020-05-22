@@ -241,6 +241,10 @@ def train_net(args, config):
         train_metrics_list.append(
             vgp_metrics.LossLogger(output_name, display_name=display_name, allreduce=args.dist,
                                    num_replicas=world_size if args.dist else 1))
+    if config.NETWORK.SUPERVISE_ATTENTION:
+        train_metrics_list.append(
+            vgp_metrics.LossLogger("attention_loss", display_name="attention_loss", allreduce=args.dist, 
+                                   num_replicas=world_size if args.dist else 1))
 
     train_metrics = CompositeEvalMetric()
     val_metrics = CompositeEvalMetric()
