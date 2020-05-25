@@ -117,7 +117,7 @@ def train(net,
             if gradient_accumulate_steps > 1:
                 loss = loss / gradient_accumulate_steps
             forward_time = time.time() - forward_time
-
+            
             # backward
             backward_time = time.time()
             if fp16:

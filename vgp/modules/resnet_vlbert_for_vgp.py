@@ -2,7 +2,6 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import pdb
 
 import sys
 root_path = os.path.abspath(os.getcwd())
@@ -310,19 +309,22 @@ class ResNetVLBERT(Module):
         
         attention_loss = torch.tensor([0], dtype=torch.float32).mean()
         if self.supervise_attention:
-            attention_loss = attention_loss.new_zeros((len(attention_probs)))
+            # reformat attention output by transposing batch and layer dimension
+            attention_probs = [layer.unsqueeze(0) for layer in attention_probs]
+            attention_probs = torch.cat(attention_probs).permute((1, 0, 2, 3, 4))
+            attention_loss = attention_loss.new_zeros((len(attention_probs)), device=text_tags.device)
             grounded_words = torch.cat(((text_tags > 0), text_tags.new_zeros((text_tags.size(0), attention_probs[0].size(-1) - text_tags.size(1)), dtype=torch.uint8)), dim=1)
             epsilon = 10e-6
             for i, attention in enumerate(attention_probs):
-                if text_tags[i].sum() == 0:
+                n_layers = attention.size(0)
+                n_heads = attention.size(1)
+                if text_tags[i].sum().item() == 0:
                     attention_loss[i] = 0
                     continue
                 else:
                     boxes_pos = torch.cat((box_mask.new_zeros((box_mask.size(0), attention_probs[0].size(-1) - 1 - box_mask.size(1)), dtype=torch.uint8), box_mask, box_mask.new_zeros((box_mask.size(0), 1), dtype=torch.uint8)), dim=1)
                     pred_attention = attention[:, :, grounded_words[i]][:, :, :, boxes_pos[i]]
                     normalized_log_attention = torch.log(epsilon + pred_attention / (pred_attention.sum(-1, keepdim=True) + epsilon))
-                    n_layers = attention.size(0)
-                    n_heads = attention.size(1)
                     attention_label = text_tags[i][text_tags[i] > 0]
                     # broadcast labels to same shape as attention
                     attention_label = attention_label.unsqueeze(0).unsqueeze(0).repeat((n_layers, n_heads, 1))
@@ -331,8 +333,12 @@ class ResNetVLBERT(Module):
                     attention_label = attention_label.view((-1))
                     attention_loss[i] = F.nll_loss(normalized_log_attention, attention_label, reduction="sum")
             # Average loss across all images and all grounded words
-            attention_loss = attention_loss.sum() / grounded_words.sum()
-            output.update({"attention_loss": attention_loss})
+            if grounded_words.sum() != 0:
+                attention_loss = (attention_loss.sum() / (grounded_words.sum() * n_layers * n_heads))
+            else:
+                attention_loss = attention_loss.sum()
+            assert not torch.isnan(attention_loss).any(), print(torch.isnan(normalized_log_attention).sum())
+            outputs.update({"attention_loss": attention_loss})
 
         loss = sentence_cls_loss.mean() + self.config.NETWORK.PHRASE_LOSS_WEIGHT * phrase_cls_loss.mean() + self.config.NETWORK.ATTENTION_LOSS_WEIGHT * attention_loss
 
