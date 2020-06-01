@@ -114,7 +114,11 @@ class VGPDataset(Dataset):
             if folder.endswith(".txt"):
                 img_id = folder[:-4]
                 path = os.path.join(captions_set, folder)
-                list_captions = open(path).read().split("\n")[:-1]
+                # Avoid ascii errors for some captions
+                try:
+                    list_captions = open(path).read().split("\n")[:-1]
+                except UnicodeDecodeError:
+                    list_captions = open(path, 'r+', encoding="utf-8").read().split("\n")[:-1]
 
                 if self.small:
                     positive_captions = np.random.choice(list_captions, 2, replace=False)
@@ -153,8 +157,12 @@ class VGPDataset(Dataset):
                     neg_path = os.path.join(captions_set, str(neg_img) + ".txt")
 
                 # Create negative pairs
-                neg_captions = np.random.choice(open(neg_path).read().split("\n")[:-1], size=n_negative,
-                                                replace=False)
+                # Avoid ascii errors for some captions
+                try:
+                    neg_captions = open(neg_path).read().split("\n")[:-1]
+                except UnicodeDecodeError:
+                    neg_captions = open(neg_path, 'r+', encoding="utf-8").read().split("\n")[:-1]
+                neg_captions = np.random.choice(neg_captions, size=n_negative, replace=False)
                 for idx, caption in enumerate(positive_captions):
                     # if we want the small data set only create one negative pair
                     if self.small and idx > 0:
