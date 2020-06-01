@@ -13,7 +13,7 @@ def parse_args():
     parser.add_argument('--ckpt', type=str, help='path to checkpoint of trained net')
     parser.add_argument('--bs', type=int)
     parser.add_argument('--gpus', type=int, nargs='+', default=[0])
-    parser.add_argument('--result-path', type=str, help='path to store test result csv file.', default='./test_result')
+    parser.add_argument('--result-path', type=str, help='path to store test result csv file.')
     parser.add_argument('--result-name', type=str)
     parser.add_argument('--fp16', default=False, action='store_true')
     parser.add_argument('-pred', '--repredict', default=False, action='store_true')

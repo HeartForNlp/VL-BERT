@@ -36,8 +36,14 @@ def test_net(args, config, ckpt_path=None, save_path=None, save_name=None):
         logger, test_output_path = create_logger(config.OUTPUT_PATH, args.cfg, config.DATASET.IMAGE_SET,
                                                  split='test')
         save_path = test_output_path
+    if ckpt_path is None:
+            _, train_output_path = create_logger(config.OUTPUT_PATH, args.cfg, config.DATASET.IMAGE_SET,
+                                                 split='train')
+            model_prefix = os.path.join(train_output_path, config.MODEL_PREFIX)
+            ckpt_path = '{}-best.model'.format(model_prefix)
+            print('Use best checkpoint {}...'.format(ckpt_path))
     if save_name is None:
-        save_name = config.MODEL_PREFIX
+        save_name = os.path.split(ckpt_path)[-1]
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     result_csv_path = os.path.join(save_path,
@@ -91,7 +97,7 @@ def test_net(args, config, ckpt_path=None, save_path=None, save_name=None):
             output = model(*batch)
             sentence_logits.append(output['sentence_label_logits'].float().detach().cpu().numpy())
             batch_size = batch[0].shape[0]
-            sentence_labels.append([test_database[cur_id + k]['label'][:, 0] for k in range(batch_size)])
+            sentence_labels.append([test_database[cur_id + k]['label'] for k in range(batch_size)])
             test_ids.append([test_database[cur_id + k]['pair_id'] for k in range(batch_size)])
             cur_id += batch_size
         sentence_logits = np.concatenate(sentence_logits, axis=0)
@@ -118,5 +124,6 @@ def test_net(args, config, ckpt_path=None, save_path=None, save_name=None):
         sentence_labels = np.array(dataframe["sentence_labels"].values)
 
     # Evaluate predictions
-    accuracy = compute_metrics_sentence_level("accuracy", sentence_prediction, sentence_labels)
-    print("{} on test set is: {}".format("accuracy", str(accuracy)))
+    for metric in ["overall_accuracy", "easy_accuracy", "alignment_accuracy"]:
+        accuracy = compute_metrics_sentence_level(metric, sentence_prediction, sentence_labels)
+        print("{} on test set is: {}".format(metric, str(accuracy)))

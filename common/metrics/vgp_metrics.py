@@ -1,6 +1,7 @@
 import torch
 from .eval_metric import EvalMetric
 import numpy as np
+import copy
 
 
 class LossLogger(EvalMetric):
@@ -36,8 +37,17 @@ class Accuracy(EvalMetric):
 
 
 def compute_metrics_sentence_level(metric, pred_labels, labels):
-    if metric == "accuracy":
+    labels = copy.deepcopy(labels)
+    pred_labels = copy.deepcopy(pred_labels)
+    if metric == "overall_accuracy":
         result = (pred_labels == labels).mean()
+    elif metric == "easy_accuracy":
+        labels[labels > 0] = 1
+        pred_labels[pred_labels > 0] = 1
+        result = (pred_labels == labels).mean()
+    elif metric == "alignment_accuracy":
+        mask = np.logical_and(pred_labels > 0, labels > 0)
+        result = (pred_labels[mask] == labels[mask]).mean()
     else:
         print("The metric {} has not been implemented".format(metric))
     return result
