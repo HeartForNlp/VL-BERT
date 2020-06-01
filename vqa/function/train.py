@@ -61,6 +61,7 @@ def train_net(args, config):
     if args.dist:
         model = eval(config.MODULE)(config)
         local_rank = int(os.environ.get('LOCAL_RANK') or 0)
+        os.environ['CUDA_VISIBLE_DEVICES'] = config.GPUS
         config.GPUS = str(local_rank)
         torch.cuda.set_device(local_rank)
         master_address = os.environ['MASTER_ADDR']
