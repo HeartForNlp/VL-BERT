@@ -460,16 +460,15 @@ def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_ma
             pred_attention_2 = attention[:, :, boxes_pos[i]][:, :, grounded_boxes][:, :, :, text_pos[i]]
             norm_log_attention_2 = torch.log(epsilon +
                                              pred_attention_2 / (pred_attention_2.sum(-1, keepdim=True) + epsilon))
-            attention_label_2 = text_tags[i].new_zeros((len(grounded_boxes), text_tags.size(0)))
-            attention_label_2[text_tags[i].unsqueeze(0).repeat(len(grounded_boxes)) ==
-                              grounded_boxes.unsqueeze(0).repeat(len(grounded_boxes))] = 1
+            attention_label_2 = text_tags[i].new_zeros((len(grounded_boxes), text_mask[i].sum()))
+            attention_label_2[text_tags[i][text_mask[i]].unsqueeze(0).repeat(len(grounded_boxes), 1) ==
+                              grounded_boxes.unsqueeze(1).repeat(1, text_mask[i].sum())] = 1
             # broadcast labels to same shape as attention
             attention_label_2 = attention_label_2.unsqueeze(0).unsqueeze(0).repeat((n_layers, n_heads, 1, 1))
             # flatten both attention and labels with respect to layers and heads
             norm_log_attention_2 = norm_log_attention_2.view((-1, pred_attention_2.size(-1)))
             attention_label_2 = attention_label_2.view((-1, attention_label_2.size(-1)))
-            attention_loss_2[i] = F.binary_cross_entropy(norm_log_attention_2, attention_label_2,
-                                                         reduction="sum") / text_mask[i].sum()
+            attention_loss_2[i] = F.binary_cross_entropy_with_logits(norm_log_attention_2, attention_label_2.type(torch.float32), reduction="sum") / text_mask[i].sum()
 
     # Average loss across all images and all grounded words
     if grounded_words.sum() != 0:
