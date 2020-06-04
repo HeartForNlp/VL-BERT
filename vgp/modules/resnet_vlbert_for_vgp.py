@@ -308,10 +308,10 @@ class ResNetVLBERT(Module):
         #                       axis=1)
 
         # Handle attention supervision, suffix 1 refers to text-to-roi attention and suffix 2 refers to roi-to-text
-        attention_loss_1 = 0
-        attention_loss_2 = 0
+        attention_loss_1 = 0.
+        attention_loss_2 = 0.
         if self.supervise_attention:
-            get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_mask)
+            attention_loss_1, attention_loss_2 = get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_mask)
             outputs.update({"attention_loss_1": attention_loss_1, "attention_loss_2": attention_loss_2})
 
         loss = sentence_cls_loss.mean() + self.config.NETWORK.PHRASE_LOSS_WEIGHT * phrase_cls_loss.mean() + \
@@ -420,8 +420,8 @@ def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_ma
     # reformat attention output by transposing batch and layer dimension
     attention_probs = [layer.unsqueeze(0) for layer in attention_probs]
     attention_probs = torch.cat(attention_probs).permute((1, 0, 2, 3, 4))
-    attention_loss_1 = text_tags.new_zeros((len(attention_probs)), device=text_tags.device)
-    attention_loss_2 = text_tags.new_zeros((len(attention_probs)), device=text_tags.device)
+    attention_loss_1 = text_tags.new_zeros((len(attention_probs)), device=text_tags.device, dtype=torch.float32)
+    attention_loss_2 = text_tags.new_zeros((len(attention_probs)), device=text_tags.device, dtype=torch.float32)
     grounded_words = torch.cat(((text_tags > 0),
                                 text_tags.new_zeros((text_tags.size(0),
                                                      attention_probs[0].size(-1) - text_tags.size(1)),
@@ -435,12 +435,12 @@ def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_ma
                                                          dtype=torch.uint8)), dim=1)
     n_layers = attention_probs.size(1)
     n_heads = attention_probs.size(2)
-    n_grounded_boxes = torch.unique(text_tags[text_tags > 0])
+    n_grounded_boxes = torch.tensor([len(torch.unique(text_tags[i][text_tags[i] > 0])) for i in range(len(text_tags))]).sum()
     epsilon = 10e-6
     for i, attention in enumerate(attention_probs):
         if text_tags[i].sum().item() == 0:
-            attention_loss_1[i] = 0
-            attention_loss_2[i] = 0
+            attention_loss_1[i] = 0.
+            attention_loss_2[i] = 0.
             continue
         else:
             # Handle text-to-roi attention
@@ -473,13 +473,11 @@ def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_ma
     # Average loss across all images and all grounded words
     if grounded_words.sum() != 0:
         attention_loss_1 = (attention_loss_1.sum() / (grounded_words.sum() * n_layers * n_heads))
-    else:
-        attention_loss_1 = 0
-    # Average loss across all images and all grounded boxes
-    if grounded_words.sum() != 0:
         attention_loss_2 = (attention_loss_2.sum() / (n_grounded_boxes * n_layers * n_heads))
     else:
-        attention_loss_2 = 0
+        attention_loss_1 = attention_loss_1.sum()
+        attention_loss_2 = attention_loss_2.sum()
+        
     return attention_loss_1, attention_loss_2
 
 
