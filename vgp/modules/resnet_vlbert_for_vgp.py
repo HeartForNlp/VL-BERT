@@ -160,6 +160,7 @@ class ResNetVLBERT(Module):
         input_mask = torch.ones((batch_size, max_len), dtype=torch.uint8, device=sentence1.device)
         input_type_ids = torch.zeros((batch_size, max_len), dtype=sentence1.dtype, device=sentence1.device)
         text_tags = input_type_ids.new_zeros((batch_size, max_len))
+        phr_mask = phrase1_mask.new_zeros((batch_size, max_len))
         grid_i, grid_k = torch.meshgrid(torch.arange(batch_size, device=sentence1.device),
                                         torch.arange(max_len, device=sentence1.device))
 
@@ -174,14 +175,19 @@ class ResNetVLBERT(Module):
         input_ids[input_mask2] = sentence2[mask2]
         text_tags[input_mask1] = sentence1_tags[mask1]
         text_tags[input_mask2] = sentence2_tags[mask2]
-        ph1_mask = torch.zeros((batch_size, max_len), dtype=sentence1.dtype, device=sentence1.device)
-        ph2_mask = torch.zeros((batch_size, max_len), dtype=sentence1.dtype, device=sentence1.device)
         if self.use_phrasal_paraphrases:
-            # do something but not this
-            ph1_mask[input_mask1] = phrase1_mask
-            ph2_mask[input_mask2] = phrase2_mask
+            phr_mask[input_mask1] = phrase1_mask[mask1]
+            phr_mask[input_mask2] = phrase2_mask[mask2]
 
-        return input_ids, input_type_ids, text_tags, input_mask, None
+            # add offsets so that every pair of phrases gets a unique id in the batch
+            no_phr_mask = (phr_mask == 0)
+            n_phr = torch.max(phr_mask, dim=1)[0]
+            n_phr[0] = 0
+            offsets = torch.cumsum(n_phr)
+            phr_mask += offsets
+            phr_mask[no_phr_mask] = 0
+
+        return input_ids, input_type_ids, text_tags, input_mask, phr_mask
 
     def train_forward(self,
                       images,
@@ -222,8 +228,10 @@ class ResNetVLBERT(Module):
         sentence2_tags = sentence2[:, :, 1]
 
         if self.use_phrasal_paraphrases:
-            phrase1_mask = sentence1[:, :, -1]
-            phrase2_mask = sentence2[:, :, -1]
+            phrase1_mask = sentence1[:, :, 2]
+            phrase2_mask = sentence2[:, :, 2]
+            phrase_labels = sentence1[:, :, -1]
+            phrase_labels = phrase_labels[phrase_labels > 0] - 1
         else:
             phrase1_mask, phrase2_mask = None, None
 
@@ -233,7 +241,7 @@ class ResNetVLBERT(Module):
         ############################################
         
         # prepare text
-        text_input_ids, text_token_type_ids, text_tags, text_mask, phrase_masks = self.prepare_text(sentence1_ids,
+        text_input_ids, text_token_type_ids, text_tags, text_mask, phrase_mask = self.prepare_text(sentence1_ids,
                                                                                                     sentence2_ids,
                                                                                                     mask1,
                                                                                                     mask2,
@@ -300,21 +308,20 @@ class ResNetVLBERT(Module):
                         'sentence_cls_loss': sentence_cls_loss})
 
         # phrasal paraphrases classification (later)
-        phrase_cls_loss = torch.tensor([0], dtype=torch.float32)
-        # max pooling representation of each phrase
-        # h_rep_ph1 = hidden_states_text[:, ph1_mask, :].max(axis=1)
-        # h_rep_ph2 = hidden_states_text[:, ph2_mask, :].max(axis=1)
-        # final_rep = torch.cat((h_rep_ph1, h_rep_ph2, torch.abs(h_rep_ph2 - h_rep_ph1), torch.mul(h_rep_ph1, h_rep_ph2)),
-        #                       axis=1)
+        phrase_cls_loss = 0.
+        if self.use_phrasal_paraphrases:
+            phrase_cls_logits = self.get_phrase_cls_loss(hidden_states_text, phrase_mask, text_token_type_ids)
+            phrase_cls_loss = F.binary_cross_entropy_with_logits(phrase_cls_logits, phrase_labels, reduction="mean")
 
         # Handle attention supervision, suffix 1 refers to text-to-roi attention and suffix 2 refers to roi-to-text
         attention_loss_1 = 0.
         attention_loss_2 = 0.
         if self.supervise_attention:
-            attention_loss_1, attention_loss_2 = get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_mask)
+            attention_loss_1, attention_loss_2 = get_attention_supervision_loss(attention_probs, text_tags, text_mask,
+                                                                                box_mask)
             outputs.update({"attention_loss_1": attention_loss_1, "attention_loss_2": attention_loss_2})
 
-        loss = sentence_cls_loss.mean() + self.config.NETWORK.PHRASE_LOSS_WEIGHT * phrase_cls_loss.mean() + \
+        loss = sentence_cls_loss.mean() + self.config.NETWORK.PHRASE_LOSS_WEIGHT * phrase_cls_loss + \
                self.config.NETWORK.ATTENTION_LOSS_WEIGHT * attention_loss_1 + \
                self.config.NETWORK.ATTENTION_LOSS_WEIGHT * attention_loss_2
 
@@ -413,6 +420,19 @@ class ResNetVLBERT(Module):
         outputs.update({'sentence_label_logits': sentence_logits})
 
         return outputs
+
+    def get_phrase_cls(self, encoded_rep, phr_mask, token_type):
+        n_pairs = torch.max(phr_mask)
+        phr_reps = encoded_rep.new_zeros((n_pairs, 2, encoded_rep.size(-1)))
+        for i in range(n_pairs):
+            # max pool representation of first phrase
+            phr_reps[i, 0] = encoded_rep[(token_type == 0) & (phr_mask == i + 1)].max(dim=0)
+            # max pool representation of second phrase
+            phr_reps[i, 1] = encoded_rep[(token_type == 1) & (phr_mask == i + 1)].max(dim=0)
+        final_phrases_rep = torch.cat((phr_reps[:, 0], phr_reps[:, 1], torch.abs(phr_reps[:, 0] - phr_reps[:, 1]),
+                                       torch.mul(phr_reps[:, 0], phr_reps[:, 1])), dim=1)
+        output_logits = self.phrasal_cls(final_phrases_rep)
+        return output_logits
 
 
 def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_mask):
