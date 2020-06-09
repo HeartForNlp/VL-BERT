@@ -25,9 +25,9 @@ from vgp.function.hard_neg_sampling import main
 
 class VGPDataset(Dataset):
     def __init__(self, captions_set, ann_file, roi_set, image_set, root_path, data_path, small_version=False,
-                 negative_sampling='hard', transform=None, test_mode=False, zip_mode=False, cache_mode=False,
-                 cache_db=False, ignore_db_cache=True, basic_tokenizer=None, tokenizer=None, pretrained_model_name=None,
-                 add_image_as_a_box=True, **kwargs):
+                 negative_sampling='hard', phrase_cls=True, transform=None, test_mode=False, zip_mode=False,
+                 cache_mode=False, cache_db=False, ignore_db_cache=True, basic_tokenizer=None, tokenizer=None,
+                 pretrained_model_name=None, add_image_as_a_box=True, **kwargs):
         """
         Visual Grounded Paraphrase Dataset
 
@@ -55,6 +55,7 @@ class VGPDataset(Dataset):
         self.image_set = os.path.join(self.data_path, image_set)
         self.small = small_version
         self.neg_sampling = negative_sampling
+        self.phrase_cls = phrase_cls
         self.transform = transform
         self.test_mode = test_mode
         self.zip_mode = zip_mode
@@ -109,6 +110,8 @@ class VGPDataset(Dataset):
                 model_path = os.path.join(os.getcwd(), "model/pretrained_model/resnet101-pt-vgbua-0000.model")
                 main(self.captions_set, self.image_set, model_path, batch_size=4, n_neighbors=20, use_saved=True)
             similarities_df = pd.read_csv(path_similarities)
+        if self.phrase_cls:
+            phrases_df = pd.read_csv(self.ann_file)
         img_id_list = np.array(os.listdir(captions_set))
         for k, folder in enumerate(img_id_list):
             if folder.endswith(".txt"):
@@ -126,6 +129,10 @@ class VGPDataset(Dataset):
                 else:
                     positive_captions = list_captions
                     n_negative = 2
+                if self.phrase_cls:
+                    relevant_phrases_df = phrases_df[phrases_df["image"] == img_id]
+                    relevant_phrases = np.array(relevant_phrases_df[["original_phrase1", "original_phrase2",
+                                                                     "type_label"]].values)
                 # Create pairs of captions that describe the same image
                 for i in range(len(positive_captions)):
                     for j in range(i):
@@ -138,6 +145,19 @@ class VGPDataset(Dataset):
                             'caption2': list_captions[j],
                             'label': 0
                         }
+                        if self.phrase_cls:
+                            db_i["phrases_1"] = []
+                            db_i["phrases_2"] = []
+                            db_i["phrase_labels"] = []
+                            for row in relevant_phrases:
+                                if row[0] in list_captions[i] and row[1] in list_captions[j]:
+                                    db_i["phrases_1"].append(row[0])
+                                    db_i["phrases_2"].append(row[1])
+                                    db_i["phrase_labels"].append(row[2])
+                                elif row[1] in list_captions[i] and row[0] in list_captions[j]:
+                                    db_i["phrases_1"].append(row[1])
+                                    db_i["phrases_2"].append(row[0])
+                                    db_i["phrase_labels"].append(row[2])
                         database.append(db_i)
 
                 # Select one or two negative captions
@@ -239,14 +259,14 @@ class VGPDataset(Dataset):
         txt_visual_ground2 = [[relevant_boxes[1][i]] * len(tokens) for i, tokens in enumerate(tokens2)]
 
         # Flatten lists
-        tokens1 = [token for sublist in tokens1 for token in sublist]
-        tokens2 = [token for sublist in tokens2 for token in sublist]
+        flat_tokens1 = [token for sublist in tokens1 for token in sublist]
+        flat_tokens2 = [token for sublist in tokens2 for token in sublist]
         txt_visual_ground1 = [box for sublist in txt_visual_ground1 for box in sublist]
         txt_visual_ground2 = [box for sublist in txt_visual_ground2 for box in sublist]
 
         # Convert token to ids and concatenate visual grounding
-        caption1_ids = torch.as_tensor(self.tokenizer.convert_tokens_to_ids(tokens1)).unsqueeze(1)
-        caption2_ids = torch.as_tensor(self.tokenizer.convert_tokens_to_ids(tokens2)).unsqueeze(1)
+        caption1_ids = torch.as_tensor(self.tokenizer.convert_tokens_to_ids(flat_tokens1)).unsqueeze(1)
+        caption2_ids = torch.as_tensor(self.tokenizer.convert_tokens_to_ids(flat_tokens2)).unsqueeze(1)
         vl_ground_idx1 = torch.as_tensor([box_names.index(box_id) if box_id in box_names else box_names.index(0)
                                           for box_id in txt_visual_ground1]).unsqueeze(1)
         vl_ground_idx2 = torch.as_tensor([box_names.index(box_id) if box_id in box_names else box_names.index(0)
@@ -254,10 +274,40 @@ class VGPDataset(Dataset):
         final_input_1 = torch.cat((caption1_ids, vl_ground_idx1), dim=1)
         final_input_2 = torch.cat((caption2_ids, vl_ground_idx2), dim=1)
 
-        # Add (later) mask to locate sub-phrases inside full sentence
-
         # Load label
         label = torch.as_tensor(int(idb['label'])) if not self.test_mode else None
+
+        # Add mask to locate sub-phrases inside full sentence
+        if self.phrase_cls:
+            if label == 0:
+                phrases_1 = idb["phrases_1"]
+                phrases_2 = idb["phrases_2"]
+                phrase_mask1 = [0] * len(formatted_text[0])
+                phrase_mask2 = [0] * len(formatted_text[1])
+                for k, phrase in enumerate(phrases_1):
+                    formatted_phrase = phrase.split(" ")
+                    idx_start = find_sub_list(formatted_phrase, formatted_text[0])
+                    phrase_mask1[idx_start:idx_start+len(formatted_phrase)] = len(formatted_phrase)*[k + 1]
+                for k, phrase in enumerate(phrases_2):
+                    formatted_phrase = phrase.split(" ")
+                    idx_start = find_sub_list(formatted_phrase, formatted_text[1])
+                    phrase_mask2[idx_start:idx_start+len(formatted_phrase)] = len(formatted_phrase)*[k + 1]
+                # Align with tokens since some words are split in several tokens
+                phrase_mask1 = torch.as_tensor([[phrase_mask1[i]] * len(tokens)
+                                                for i, tokens in enumerate(tokens1)]).unsqueeze(1)
+                phrase_mask2 = torch.as_tensor([[phrase_mask2[i]] * len(tokens)
+                                                for i, tokens in enumerate(tokens2)]).unsqueeze(1)
+                final_input_1 = torch.cat((final_input_1, phrase_mask1), dim=1)
+                final_input_2 = torch.cat((final_input_2, phrase_mask2), dim=1)
+
+                if not self.test_mode:
+                    phrase_labels = [int(lbl) for lbl in idb["phrase_labels"]]
+                    label = torch.as_tensor([[int(idb['label'])]*len(phrase_labels), phrase_labels])
+            else:
+                final_input_1 = torch.cat((final_input_1, final_input_1.new_zeros((final_input_1.size(0), 1))), dim=1)
+                final_input_2 = torch.cat((final_input_1, final_input_2.new_zeros((final_input_2.size(0), 1))), dim=1)
+                if not self.test_mode:
+                    label = torch.tensor([[int(idb['label'])], [-1]])
 
         if not self.test_mode:
             outputs = (image, boxes, final_input_1, final_input_2, im_info, label)
@@ -322,6 +372,13 @@ class VGPDataset(Dataset):
             data_names = ['image', 'boxes', 'caption1', 'caption2', 'im_info']
 
         return data_names
+
+
+def find_sub_list(sublist, full_list):
+    n = len(sublist)
+    for ind in (i for i,e in enumerate(full_list) if e == sublist[0]):
+        if full_list[ind:ind+n] == sublist:
+            return ind
 
 
 def test_vgp():
