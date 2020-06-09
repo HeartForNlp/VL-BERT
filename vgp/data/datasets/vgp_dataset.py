@@ -282,21 +282,16 @@ class VGPDataset(Dataset):
             if label == 0:
                 phrases_1 = idb["phrases_1"]
                 phrases_2 = idb["phrases_2"]
-                phrase_mask1 = [0] * len(formatted_text[0])
-                phrase_mask2 = [0] * len(formatted_text[1])
+                phrase_mask1 = np.zeros((len(tokens1), 1))
+                phrase_mask2 = np.zeros((len(tokens2), 1))
                 for k, phrase in enumerate(phrases_1):
-                    formatted_phrase = phrase.split(" ")
-                    idx_start = find_sub_list(formatted_phrase, formatted_text[0])
-                    phrase_mask1[idx_start:idx_start+len(formatted_phrase)] = len(formatted_phrase)*[k + 1]
+                    formatted_phrase = self.tokenizer.tokenize(phrase)
+                    idx_start = find_sub_list(formatted_phrase, flat_tokens1)
+                    phrase_mask1[idx_start:idx_start+len(formatted_phrase)] = k + 1
                 for k, phrase in enumerate(phrases_2):
-                    formatted_phrase = phrase.split(" ")
-                    idx_start = find_sub_list(formatted_phrase, formatted_text[1])
-                    phrase_mask2[idx_start:idx_start+len(formatted_phrase)] = len(formatted_phrase)*[k + 1]
-                # Align with tokens since some words are split in several tokens
-                phrase_mask1 = torch.as_tensor([[phrase_mask1[i]] * len(tokens)
-                                                for i, tokens in enumerate(tokens1)]).unsqueeze(1)
-                phrase_mask2 = torch.as_tensor([[phrase_mask2[i]] * len(tokens)
-                                                for i, tokens in enumerate(tokens2)]).unsqueeze(1)
+                    formatted_phrase = self.tokenizer.tokenize(phrase)
+                    idx_start = find_sub_list(formatted_phrase, flat_tokens2)
+                    phrase_mask2[idx_start:idx_start + len(formatted_phrase)] = k + 1
                 final_input_1 = torch.cat((final_input_1, phrase_mask1), dim=1)
                 final_input_2 = torch.cat((final_input_2, phrase_mask2), dim=1)
 
