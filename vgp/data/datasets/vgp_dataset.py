@@ -129,10 +129,6 @@ class VGPDataset(Dataset):
                 else:
                     positive_captions = list_captions
                     n_negative = 2
-                if self.phrase_cls:
-                    relevant_phrases_df = phrases_df[phrases_df["image"] == img_id]
-                    relevant_phrases = np.array(relevant_phrases_df[["original_phrase1", "original_phrase2",
-                                                                     "type_label"]].values)
                 # Create pairs of captions that describe the same image
                 for i in range(len(positive_captions)):
                     for j in range(i):
@@ -146,18 +142,7 @@ class VGPDataset(Dataset):
                             'label': 0
                         }
                         if self.phrase_cls:
-                            db_i["phrases_1"] = []
-                            db_i["phrases_2"] = []
-                            db_i["phrase_labels"] = []
-                            for row in relevant_phrases:
-                                if row[0] in list_captions[i] and row[1] in list_captions[j]:
-                                    db_i["phrases_1"].append(row[0])
-                                    db_i["phrases_2"].append(row[1])
-                                    db_i["phrase_labels"].append(row[2])
-                                elif row[1] in list_captions[i] and row[0] in list_captions[j]:
-                                    db_i["phrases_1"].append(row[1])
-                                    db_i["phrases_2"].append(row[0])
-                                    db_i["phrase_labels"].append(row[2])
+                            db_i["phrases_1"], db_i["phrases_2"], db_i["phrase_labels"] = get_clean_phrases(phrases_df, img_id, list_captions[i], list_captions[j])
                         database.append(db_i)
 
                 # Select one or two negative captions
@@ -166,7 +151,6 @@ class VGPDataset(Dataset):
                     # Fix the seed to have data set reproducibility
                     np.random.seed(k)
                     neg_image = np.random.choice(other_imgs, size=1)[0]
-                    np.random.seed(k)
                     neg_path = os.path.join(captions_set, neg_image)
                 else:
                     if self.neg_sampling != "hard":
@@ -279,30 +263,37 @@ class VGPDataset(Dataset):
 
         # Add mask to locate sub-phrases inside full sentence
         if self.phrase_cls:
-            if label == 0:
+            if label == 0 and len(idb["phrase_labels"]) > 0:
                 phrases_1 = idb["phrases_1"]
                 phrases_2 = idb["phrases_2"]
-                phrase_mask1 = np.zeros((len(tokens1), 1))
-                phrase_mask2 = np.zeros((len(tokens2), 1))
+                phrase_mask1 = final_input_1.new_zeros((len(flat_tokens1), 1))
+                phrase_mask2 = final_input_2.new_zeros((len(flat_tokens2), 1))
                 for k, phrase in enumerate(phrases_1):
                     formatted_phrase = self.tokenizer.tokenize(phrase)
                     idx_start = find_sub_list(formatted_phrase, flat_tokens1)
+                    if idx_start is None:
+                        print(idb)
+                        print(formatted_phrase)
+                        print(flat_tokens1)
                     phrase_mask1[idx_start:idx_start+len(formatted_phrase)] = k + 1
                 for k, phrase in enumerate(phrases_2):
                     formatted_phrase = self.tokenizer.tokenize(phrase)
                     idx_start = find_sub_list(formatted_phrase, flat_tokens2)
+                    if idx_start is None:
+                        print(idb)
+                        print(formatted_phrase)
+                        print(flat_tokens2)
                     phrase_mask2[idx_start:idx_start + len(formatted_phrase)] = k + 1
                 final_input_1 = torch.cat((final_input_1, phrase_mask1), dim=1)
                 final_input_2 = torch.cat((final_input_2, phrase_mask2), dim=1)
 
                 if not self.test_mode:
-                    phrase_labels = [int(lbl) for lbl in idb["phrase_labels"]]
-                    label = torch.as_tensor([[int(idb['label'])]*len(phrase_labels), phrase_labels])
+                    label = torch.as_tensor([[int(idb['label']), int(lbl)] for lbl in idb["phrase_labels"]])
             else:
                 final_input_1 = torch.cat((final_input_1, final_input_1.new_zeros((final_input_1.size(0), 1))), dim=1)
-                final_input_2 = torch.cat((final_input_1, final_input_2.new_zeros((final_input_2.size(0), 1))), dim=1)
+                final_input_2 = torch.cat((final_input_2, final_input_2.new_zeros((final_input_2.size(0), 1))), dim=1)
                 if not self.test_mode:
-                    label = torch.tensor([[int(idb['label'])], [-1]])
+                    label = torch.tensor([[int(idb['label']), -1]])
 
         if not self.test_mode:
             outputs = (image, boxes, final_input_1, final_input_2, im_info, label)
@@ -374,6 +365,73 @@ def find_sub_list(sublist, full_list):
     for ind in (i for i,e in enumerate(full_list) if e == sublist[0]):
         if full_list[ind:ind+n] == sublist:
             return ind
+        
+        
+def rm_inclusions(phrases):
+    pairs = np.array(phrases)[:, :2]
+    incl_idx = []
+    for k, pair1 in enumerate(pairs):
+        for i, pair2 in enumerate(pairs):
+            if (i != k) and (pair1[0] in pair2[0]) and (pair1[1] in pair2[1]):
+                incl_idx.append(k)
+    return np.delete(phrases, incl_idx, axis=0)
+
+
+def rm_redundancies(relevant_phrases):
+    # remove pairs of phrases that are redundant
+    if relevant_phrases.shape[0] > 0:
+        pairs = relevant_phrases[:, :2]
+        redundancies = []
+        to_remove = []
+        for k, pair1 in enumerate(pairs):
+            for i, pair2 in enumerate(pairs[k +1:]):
+                if (pair1 == pair2).all() or (pair1 == pair2[::-1]).all():
+                    redundancies.append([k, k + 1 + i])
+        for doublons in redundancies:
+            np.random.seed()
+            to_remove.append(np.random.choice(doublons, size=1)[0])
+        relevant_phrases = np.delete(relevant_phrases, to_remove, axis=0)
+    return relevant_phrases
+
+
+def get_clean_phrases(full_phrases_df, img_id, caption1, caption2):
+    relevant_phrases_df = full_phrases_df[full_phrases_df["image"] == int(img_id)]
+    relevant_phrases = np.array(relevant_phrases_df[["original_phrase1", "original_phrase2",
+                                                     "type_label"]].values)
+    if len(relevant_phrases) == 0:
+        return [], [], []
+    unique_phrases = rm_redundancies(relevant_phrases)
+    present_pairs = []
+    for row in unique_phrases:
+        if row[0] in caption1 and row[1] in caption2:
+            ph1 = row[0]
+            ph2 = row[1]
+            ph_label =row[2]
+            # avoid case where category label of visual grounding tag gets detected as a phrase
+            idx1 = caption1.index(ph1)
+            idx2 = caption2.index(ph2)
+            if ((idx1 == 0 or caption1[idx1 - 1] == " ") and caption1[idx1 + len(ph1)] in [" ", "]"]) and ((idx2 == 0 or caption2[idx2 - 1] == " ") and caption2[idx2 + len(ph2)] in [" ", "]"]):
+                present_pairs.append([ph1, ph2, ph_label])
+        elif row[1] in caption1 and row[0] in caption2:
+            ph1 = row[1]
+            ph2 = row[0]
+            ph_label =row[2]
+            # if paraphrase type is entailment, change entailment type to reflect the switching of phrases7 position
+            if row[2] == "1":
+                ph_label = "2"
+            elif row[2] == "2":
+                ph_label = "2"
+            # avoid case where category label of visual grounding tag gets detected as a phrase
+            idx1 = caption1.index(ph1)
+            idx2 = caption2.index(ph2)
+            if ((idx1 == 0 or caption1[idx1 - 1] == " ") and caption1[idx1 + len(ph1)] in [" ", "]"]) and ((idx2 == 0 or caption2[idx2 - 1] == " ") and caption2[idx2 + len(ph2)] in [" ", "]"]):
+                present_pairs.append([ph1, ph2, ph_label])
+    if len(present_pairs) == 0:
+        return [], [], [] 
+    
+    # remove inclusions
+    cleaned_pairs = rm_inclusions(present_pairs)
+    return cleaned_pairs[:, 0], cleaned_pairs[:, 1], cleaned_pairs[:, 2]
 
 
 def test_vgp():
@@ -383,9 +441,10 @@ def test_vgp():
     root_path = ""
     data_path = os.path.join(os.getcwd(), "data/vgp/")
     dataset = VGPDataset(captions_set="train_captions", ann_file=ann_file, roi_set=roi_set, image_set=image_set,
-                         small_version=True, negative_sampling='hard', root_path=root_path, data_path=data_path)
-    print(len(dataset.__getitem__(0)))
+                         small_version=False, negative_sampling='hard', root_path=root_path, data_path=data_path)
+    
 
 
 if __name__ == "__main__":
     test_vgp()
+

@@ -107,7 +107,7 @@ def make_dataloader(cfg, dataset=None, mode='train', distributed=False, num_repl
         dataset = build_dataset(dataset_name=cfg.DATASET.DATASET, captions_set=captions_set,
                                 ann_file=ann_file, roi_set=cfg.DATASET.ROI_SET, image_set=cfg.DATASET.IMAGE_SET,
                                 root_path=cfg.DATASET.ROOT_PATH, data_path=cfg.DATASET.DATASET_PATH,
-                                small_version=small_version, negative_sampling=cfg.DATASET.NEGATIVE_SAMPLING,
+                                small_version=small_version, negative_sampling=cfg.DATASET.NEGATIVE_SAMPLING, phrase_cls=cfg.DATASET.PHRASE_CLS, 
                                 transform=transform, test_mode=(mode == 'test'), zip_mode=cfg.DATASET.ZIP_MODE,
                                 cache_mode=cfg.DATASET.CACHE_MODE, ignore_db_cache=cfg.DATASET.IGNORE_DB_CACHE,
                                 pretrained_model_name=cfg.NETWORK.BERT_MODEL_NAME,
@@ -116,7 +116,7 @@ def make_dataloader(cfg, dataset=None, mode='train', distributed=False, num_repl
 
     sampler = make_data_sampler(dataset, shuffle, distributed, num_replicas, rank)
     batch_sampler = make_batch_data_sampler(dataset, sampler, False, batch_size)
-    collator = BatchCollator(dataset=dataset, append_ind=cfg.DATASET.APPEND_INDEX)
+    collator = BatchCollator(dataset=dataset, phrase_cls=cfg.DATASET.PHRASE_CLS, append_ind=cfg.DATASET.APPEND_INDEX)
 
     dataloader = torch.utils.data.DataLoader(dataset=dataset,
                                              batch_sampler=batch_sampler,
