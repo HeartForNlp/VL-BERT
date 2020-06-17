@@ -20,14 +20,15 @@ class LossLogger(EvalMetric):
 
 
 class Accuracy(EvalMetric):
-    def __init__(self, allreduce=False, num_replicas=1):
-        super(Accuracy, self).__init__('Acc', allreduce, num_replicas)
+    def __init__(self, prefix_name="", allreduce=False, num_replicas=1):
+        self.prefix.prefix = prefix_name
+        super(Accuracy, self).__init__(prefix_name + 'Acc', allreduce, num_replicas)
 
     def update(self, outputs):
         with torch.no_grad():
-            _filter = outputs['sentence_label'] != -1
-            cls_logits = outputs['sentence_label_logits'][_filter]
-            label = outputs['sentence_label'][_filter]
+            _filter = outputs[self.prefix + '_label'] != -1
+            cls_logits = outputs[self.prefix + '_label_logits'][_filter]
+            label = outputs[self.prefix + '_label'][_filter]
             if cls_logits.dim() == 1:
                 self.sum_metric += float(((cls_logits > 0.).float() == label.float()).sum().item())
                 self.num_inst += cls_logits.shape[0]

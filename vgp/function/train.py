@@ -232,11 +232,19 @@ def train_net(args, config):
         smart_partial_load_model_state_dict(model, pretrain_state_dict)
 
     # metrics
-    train_metrics_list = [vgp_metrics.Accuracy(allreduce=args.dist,
+    train_metrics_list = [vgp_metrics.Accuracy(prefix_name="sentence", allreduce=args.dist,
                                                num_replicas=world_size if args.dist else 1)]
-    val_metrics_list = [vgp_metrics.Accuracy(allreduce=args.dist,
+    val_metrics_list = [vgp_metrics.Accuracy(prefix_name="sentence", allreduce=args.dist,
                                              num_replicas=world_size if args.dist else 1)]
-
+    early_stopping_metric = "sentenceAcc"
+    if config.DATASET.PHRASE_CLS:
+        train_metrics_list.append(vgp_metrics.Accuracy(prefix_name="phrase", allreduce=args.dist, 
+                                                       num_replicas=world_size if args.dist else 1))
+        train_metrics_list.append(
+            vgp_metrics.LossLogger(output_name="phrase_cls_loss", display_name="phrase_cls_loss", allreduce=args.dist,
+                                   num_replicas=world_size if args.dist else 1))
+        early_stopping_metric = "phraseAcc"
+        
     for output_name, display_name in config.TRAIN.LOSS_LOGGERS:
         train_metrics_list.append(
             vgp_metrics.LossLogger(output_name, display_name=display_name, allreduce=args.dist,
