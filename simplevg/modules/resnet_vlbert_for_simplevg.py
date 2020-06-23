@@ -22,8 +22,6 @@ class ResNetVLBERT(Module):
         super(ResNetVLBERT, self).__init__(config)
         self.enable_cnn_reg_loss = config.NETWORK.ENABLE_CNN_REG_LOSS
         self.cnn_loss_top = config.NETWORK.CNN_LOSS_TOP
-        self.align_caption_img = config.DATASET.ALIGN_CAPTION_IMG
-        self.use_phrasal_paraphrases = config.DATASET.PHRASE_CLS
         self.supervise_attention = config.NETWORK.SUPERVISE_ATTENTION
         if not config.NETWORK.BLIND:
             self.image_feature_extractor = FastRCNN(config,
@@ -63,43 +61,21 @@ class ResNetVLBERT(Module):
         
         self.for_pretrain = False
         dim = config.NETWORK.VLBERT.hidden_size
-        if self.align_caption_img:
-            sentence_logits_shape = 3
-        else:
-            sentence_logits_shape = 1
         if config.NETWORK.SENTENCE.CLASSIFIER_TYPE == "2fc":
             self.sentence_cls = torch.nn.Sequential(
                 torch.nn.Dropout(config.NETWORK.SENTENCE.CLASSIFIER_DROPOUT, inplace=False),
                 torch.nn.Linear(dim, config.NETWORK.SENTENCE.CLASSIFIER_HIDDEN_SIZE),
                 torch.nn.ReLU(inplace=True),
                 torch.nn.Dropout(config.NETWORK.SENTENCE.CLASSIFIER_DROPOUT, inplace=False),
-                torch.nn.Linear(config.NETWORK.SENTENCE.CLASSIFIER_HIDDEN_SIZE,
-                                sentence_logits_shape),
+                torch.nn.Linear(config.NETWORK.SENTENCE.CLASSIFIER_HIDDEN_SIZE, 1),
             )
         elif config.NETWORK.SENTENCE.CLASSIFIER_TYPE == "1fc":
             self.sentence_cls = torch.nn.Sequential(
                 torch.nn.Dropout(config.NETWORK.SENTENCE.CLASSIFIER_DROPOUT, inplace=False),
-                torch.nn.Linear(dim, sentence_logits_shape)
+                torch.nn.Linear(dim, 1)
             )
         else:
             raise ValueError("Classifier type: {} not supported!".format(config.NETWORK.SENTENCE.CLASSIFIER_TYPE))
-
-        if self.use_phrasal_paraphrases:
-            if config.NETWORK.PHRASE.CLASSIFIER_TYPE == "2fc":
-                self.phrasal_cls = torch.nn.Sequential(
-                    torch.nn.Dropout(config.NETWORK.PHRASE.CLASSIFIER_DROPOUT, inplace=False),
-                    torch.nn.Linear(4*dim, config.NETWORK.PHRASE.CLASSIFIER_HIDDEN_SIZE),
-                    torch.nn.ReLU(inplace=True),
-                    torch.nn.Dropout(config.NETWORK.PHRASE.CLASSIFIER_DROPOUT, inplace=False),
-                    torch.nn.Linear(config.NETWORK.PHRASE.CLASSIFIER_HIDDEN_SIZE, 5),
-                )
-            elif config.NETWORK.PHRASE.CLASSIFIER_TYPE == "1fc":
-                self.phrasal_cls = torch.nn.Sequential(
-                    torch.nn.Dropout(config.NETWORK.PHRASE.CLASSIFIER_DROPOUT, inplace=False),
-                    torch.nn.Linear(4*dim, 5)
-                )
-            else:
-                raise ValueError("Classifier type: {} not supported!".format(config.NETWORK.PHRASE.CLASSIFIER_TYPE))
 
         # init weights
         self.init_weight()
@@ -148,53 +124,24 @@ class ResNetVLBERT(Module):
         row_id += row_id_broadcaster
         return object_reps[row_id.view(-1), span_tags_fixed.view(-1)].view(*span_tags_fixed.shape, -1)
 
-    def prepare_text(self, sentence1, sentence2, mask1, mask2, sentence1_tags, sentence2_tags, phrase1_mask,
-                     phrase2_mask):
-        batch_size, max_len1 = sentence1.shape
-        _, max_len2 = sentence2.shape
-        max_len = (mask1.sum(1) + mask2.sum(1)).max() + 3
+    def prepare_text(self, sentence, mask, sentence_tags):
+        batch_size, max_len = sentence.shape
         cls_id, sep_id = self.tokenizer.convert_tokens_to_ids(['[CLS]', '[SEP]'])
-        end_1 = 1 + mask1.sum(1, keepdim=True)
-        end_2 = end_1 + 1 + mask2.sum(1, keepdim=True)
-        input_ids = torch.zeros((batch_size, max_len), dtype=sentence1.dtype, device=sentence1.device)
-        input_mask = torch.ones((batch_size, max_len), dtype=torch.uint8, device=sentence1.device)
-        input_type_ids = torch.zeros((batch_size, max_len), dtype=sentence1.dtype, device=sentence1.device)
-        text_tags = input_type_ids.new_zeros((batch_size, max_len))
-        phr_mask = None
-        grid_i, grid_k = torch.meshgrid(torch.arange(batch_size, device=sentence1.device),
-                                        torch.arange(max_len, device=sentence1.device))
-
-        input_mask[grid_k > end_2] = 0
-        input_type_ids[(grid_k > end_1) & (grid_k <= end_2)] = 1
-        input_mask1 = (grid_k > 0) & (grid_k < end_1)
-        input_mask2 = (grid_k > end_1) & (grid_k < end_2)
+        sep_pos = 1 + mask.sum(1, keepdim=True)
+        input_ids = torch.zeros((batch_size, max_len + 2), dtype=sentence.dtype, device=sentence.device)
+        text_tags = mask.new_zeros((batch_size, max_len + 2))
         input_ids[:, 0] = cls_id
-        input_ids[grid_k == end_1] = sep_id
-        input_ids[grid_k == end_2] = sep_id
-        input_ids[input_mask1] = sentence1[mask1]
-        input_ids[input_mask2] = sentence2[mask2]
-        text_tags[input_mask1] = sentence1_tags[mask1]
-        text_tags[input_mask2] = sentence2_tags[mask2]
-        if self.use_phrasal_paraphrases:
-            phr_mask = phrase1_mask.new_zeros((batch_size, max_len))
-            phr_mask[input_mask1] = phrase1_mask[mask1]
-            phr_mask[input_mask2] = phrase2_mask[mask2]
-
-            # add offsets so that every pair of phrases gets a unique id in the batch
-            no_phr_mask = (phr_mask == 0)
-            n_phr = torch.max(phr_mask, dim=1)[0]
-            offsets = phr_mask.new_zeros((phr_mask.size(0)))
-            offsets[1:] = torch.cumsum(n_phr[:-1], dim=0)
-            phr_mask += offsets.unsqueeze(1)
-            phr_mask[no_phr_mask] = 0
-
-        return input_ids, input_type_ids, text_tags, input_mask, phr_mask
+        _batch_inds = torch.arange(sentence.shape[0], device=sentence.device)
+        input_ids[_batch_inds, sep_pos] = sep_id
+        input_ids[:, 1:-1] = sentence
+        text_tags[:, 1:-1] = sentence_tags
+        input_mask = input_ids > 0
+        return input_ids, text_tags, input_mask
 
     def train_forward(self,
                       images,
                       boxes,
-                      sentence1,
-                      sentence2,
+                      sentence,
                       im_info,
                       label):
         ###########################################
@@ -221,35 +168,19 @@ class ResNetVLBERT(Module):
                                                     segms=None)
 
         # For now no tags
-        sentence1_ids = sentence1[:, :, 0]
-        mask1 = (sentence1[:, :, 0] > 0.5)
-        sentence1_tags = sentence1[:, :, 1]
-        sentence2_ids = sentence2[:, :, 0]
-        mask2 = (sentence2[:, :, 0] > 0.5)
-        sentence2_tags = sentence2[:, :, 1]
-
-        if self.use_phrasal_paraphrases:
-            phrase1_mask = sentence1[:, :, 2]
-            phrase2_mask = sentence2[:, :, 2]
-            sentence_label = label[:, 0, 0].view(-1)
-            phrase_labels = label[:, :, 1]
-            phrase_labels = phrase_labels[phrase_labels > -1]
-        else:
-            phrase1_mask, phrase2_mask = None, None
-            sentence_label = label.view(-1)
+        sentence_ids = sentence[:, :, 0]
+        mask = (sentence[:, :, 0] > 0.5)
+        sentence_tags = sentence[:, :, 1]
+        sentence_label = label.view(-1)
 
 
         ############################################
         
         # prepare text
-        text_input_ids, text_token_type_ids, text_tags, text_mask, phrase_mask = self.prepare_text(sentence1_ids,
-                                                                                                    sentence2_ids,
-                                                                                                    mask1,
-                                                                                                    mask2,
-                                                                                                    sentence1_tags,
-                                                                                                    sentence2_tags,
-                                                                                                    phrase1_mask,
-                                                                                                    phrase2_mask)
+        text_input_ids, text_tags, text_mask = self.prepare_text(sentence_ids,
+                                                                 mask,
+                                                                 sentence_tags)
+        text_token_type_ids = text_input_ids.new_zeros(text_input_ids.shape)
 
         # Add visual feature to text elements
         if self.config.NETWORK.NO_GROUNDING:
@@ -296,26 +227,12 @@ class ResNetVLBERT(Module):
         outputs = {}
         
         # sentence classification
-        sentence_logits = self.sentence_cls(pooled_rep)
-        if self.align_caption_img:
-            sentence_logits = sentence_logits.view((-1, 3))
-            sentence_cls_loss = F.cross_entropy(sentence_logits, sentence_label)
-        else:
-            sentence_logits = sentence_logits.view(-1)
-            sentence_cls_loss = F.binary_cross_entropy_with_logits(sentence_logits, sentence_label.type(torch.float32))
+        sentence_logits = self.sentence_cls(pooled_rep).view(-1)
+        sentence_cls_loss = F.binary_cross_entropy_with_logits(sentence_logits, sentence_label.type(torch.float32))
 
         outputs.update({'sentence_label_logits': sentence_logits,
                         'sentence_label': sentence_label.long(),
                         'sentence_cls_loss': sentence_cls_loss})
-
-        # phrasal paraphrases classification (later)
-        phrase_cls_loss = 0.
-        if self.use_phrasal_paraphrases and phrase_mask.max() > 0:
-            phrase_cls_logits = self.get_phrase_cls(hidden_states_text, phrase_mask, text_token_type_ids)
-            phrase_cls_loss = F.cross_entropy(phrase_cls_logits, phrase_labels, reduction="mean")
-            outputs.update({"phrase_label_logits": phrase_cls_logits, 
-                            "phrase_label": phrase_labels, 
-                            "phrase_cls_loss": phrase_cls_loss})
 
         # Handle attention supervision, suffix 1 refers to text-to-roi attention and suffix 2 refers to roi-to-text
         attention_loss_1 = 0.
@@ -325,8 +242,7 @@ class ResNetVLBERT(Module):
                                                                                 box_mask)
             outputs.update({"attention_loss_1": attention_loss_1, "attention_loss_2": attention_loss_2})
 
-        loss = sentence_cls_loss.mean() + self.config.NETWORK.PHRASE_LOSS_WEIGHT * phrase_cls_loss + \
-               self.config.NETWORK.ATTENTION_LOSS_WEIGHT * attention_loss_1 + \
+        loss = sentence_cls_loss.mean() + self.config.NETWORK.ATTENTION_LOSS_WEIGHT * attention_loss_1 + \
                self.config.NETWORK.ATTENTION_LOSS_WEIGHT * attention_loss_2
 
         return outputs, loss
@@ -334,8 +250,7 @@ class ResNetVLBERT(Module):
     def inference_forward(self,
                           images,
                           boxes,
-                          sentence1,
-                          sentence2,
+                          sentence,
                           im_info):
         ###########################################
         # visual feature extraction
@@ -343,10 +258,9 @@ class ResNetVLBERT(Module):
         # Don't know what segments are for
         # segms = masks
 
-        # For now use all boxes
-        box_mask = torch.ones(boxes[:, :, -1].size(), dtype=torch.uint8, device=boxes.device)
-
+        box_mask = (boxes[:, :, -1] > - 0.5)
         max_len = int(box_mask.sum(1).max().item())
+
         box_mask = box_mask[:, :max_len]
         boxes = boxes[:, :max_len].type(torch.float32)
 
@@ -362,35 +276,23 @@ class ResNetVLBERT(Module):
                                                     segms=None)
 
         # For now no tags
-        sentence1_ids = sentence1[:, :, 0]
-        mask1 = (sentence1[:, :, 0] > 0.5)
-        sentence1_tags = sentence1[:, :, 1]
-        sentence2_ids = sentence2[:, :, 0]
-        mask2 = (sentence2[:, :, 0] > 0.5)
-        sentence2_tags = sentence2[:, :, 1]
-
-        if self.use_phrasal_paraphrases:
-            phrase1_mask = sentence1[:, :, -1]
-            phrase2_mask = sentence2[:, :, -1]
-        else:
-            phrase1_mask, phrase2_mask = None, None
+        sentence_ids = sentence[:, :, 0]
+        mask = (sentence[:, :, 0] > 0.5)
+        sentence_tags = sentence[:, :, 1]
 
         ############################################
 
         # prepare text
-        text_input_ids, text_token_type_ids, text_tags, text_mask, phrase_masks = self.prepare_text(sentence1_ids,
-                                                                                                    sentence2_ids,
-                                                                                                    mask1,
-                                                                                                    mask2,
-                                                                                                    sentence1_tags,
-                                                                                                    sentence2_tags,
-                                                                                                    phrase1_mask,
-                                                                                                    phrase2_mask)
+        text_input_ids, text_tags, text_mask = self.prepare_text(sentence_ids,
+                                                                 mask,
+                                                                 sentence_tags)
+        text_token_type_ids = text_input_ids.new_zeros(text_input_ids.shape)
 
         # Add visual feature to text elements
         if self.config.NETWORK.NO_GROUNDING:
-            text_tags.zero_()
-        text_visual_embeddings = self._collect_obj_reps(text_tags, obj_reps['obj_reps'])
+            text_visual_embeddings = self._collect_obj_reps(text_tags.new_zeros(text_tags.size()), obj_reps['obj_reps'])
+        else:
+            text_visual_embeddings = self._collect_obj_reps(text_tags, obj_reps['obj_reps'])
         # Add textual feature to image element
         if self.config.NETWORK.BLIND:
             object_linguistic_embeddings = boxes.new_zeros((*boxes.shape[:-1], self.config.NETWORK.VLBERT.hidden_size))
@@ -416,27 +318,11 @@ class ResNetVLBERT(Module):
         ###########################################
         outputs = {}
         # sentence classification
-        sentence_logits = self.sentence_cls(pooled_rep)
-        if self.align_caption_img:
-            sentence_logits = sentence_logits.view((-1, 3))
-        else:
-            sentence_logits = sentence_logits.view(-1)
+        sentence_logits = self.sentence_cls(pooled_rep).view(-1)
+
         outputs.update({'sentence_label_logits': sentence_logits})
 
         return outputs
-
-    def get_phrase_cls(self, encoded_rep, phr_mask, token_type):
-        n_pairs = phr_mask.max().item()
-        phr_reps = encoded_rep.new_zeros((n_pairs, 2, encoded_rep.size(-1)))
-        for i in range(n_pairs):
-            # max pool representation of first phrase
-            phr_reps[i, 0] = encoded_rep[(token_type == 0) & (phr_mask == i + 1)].max(dim=0)[0]
-            # max pool representation of second phrase
-            phr_reps[i, 1] = encoded_rep[(token_type == 1) & (phr_mask == i + 1)].max(dim=0)[0]
-        final_phrases_rep = torch.cat((phr_reps[:, 0], phr_reps[:, 1], torch.abs(phr_reps[:, 0] - phr_reps[:, 1]),
-                                       torch.mul(phr_reps[:, 0], phr_reps[:, 1])), dim=1)
-        output_logits = self.phrasal_cls(final_phrases_rep)
-        return output_logits
 
 
 def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_mask):
@@ -459,7 +345,8 @@ def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_ma
                                                          dtype=torch.uint8)), dim=1)
     n_layers = attention_probs.size(1)
     n_heads = attention_probs.size(2)
-    n_grounded_boxes = torch.tensor([len(torch.unique(text_tags[i][text_tags[i] > 0])) for i in range(len(text_tags))]).sum()
+    n_grounded_boxes = torch.tensor([len(torch.unique(text_tags[i][text_tags[i] > 0]))
+                                     for i in range(len(text_tags))]).sum()
     epsilon = 10e-6
     for i, attention in enumerate(attention_probs):
         if text_tags[i].sum().item() == 0:
