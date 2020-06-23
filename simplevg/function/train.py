@@ -23,7 +23,7 @@ from common.callbacks.epoch_end_callbacks.checkpoint import Checkpoint
 from common.lr_scheduler import WarmupMultiStepLR
 from common.nlp.bert.optimization import AdamW, WarmupLinearSchedule
 from simplevg.data.build import make_dataloader, build_dataset, build_transforms
-from vgp.modules import *
+from simplevg.modules import *
 from simplevg.function.val import do_validation
 
 try:

@@ -1,8 +1,8 @@
 ---
 RNG_SEED: 12345
-OUTPUT_PATH: './output/vl-bert/simplevg/debug/'
+OUTPUT_PATH: './output/vl-bert/simplevg/Version1/'
 MODULE: ResNetVLBERT
-GPUS: '0,1,2,3'
+GPUS: '0,1,2,3,4,5'
 LOG_FREQUENT: 100
 VAL_FREQUENT: 1
 CHECKPOINT_FREQUENT: 1
@@ -13,7 +13,7 @@ SCALES:
 - 1000
 
 DATASET:
-  DATASET: vgp
+  DATASET: simplevg
   LABEL_INDEX_IN_BATCH: -1
   APPEND_INDEX: false
   DATASET_PATH: './data/vgp'
@@ -27,7 +27,7 @@ DATASET:
   ZIP_MODE: false
   CACHE_MODE: false
   IGNORE_DB_CACHE: true
-  SMALL: false
+  SMALL: true
   NEGATIVE_SAMPLING: 'hard'
 
 NETWORK:
@@ -63,7 +63,6 @@ NETWORK:
   BERT_PRETRAINED_EPOCH: 0
   BERT_FROZEN: false
   ENABLE_CNN_REG_LOSS: false
-  PHRASE_LOSS_WEIGHT: 1.0
   CNN_LOSS_TOP: false
   NO_GROUNDING: true
   SUPERVISE_ATTENTION: true
@@ -100,7 +99,7 @@ TRAIN:
   RESUME: false
   AUTO_RESUME: true
   BEGIN_EPOCH: 0
-  END_EPOCH: 5
+  END_EPOCH: 2
   OPTIMIZER: 'SGD'
   CLIP_GRAD_NORM: 10
   GRAD_ACCUMULATE_STEPS: 8

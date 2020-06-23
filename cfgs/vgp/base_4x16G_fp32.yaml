@@ -1,8 +1,8 @@
 ---
 RNG_SEED: 12345
-OUTPUT_PATH: './output/vl-bert/vgp/debug_attention/'
+OUTPUT_PATH: './output/vl-bert/vgp/Version5/'
 MODULE: ResNetVLBERT
-GPUS: '0,1,2,3'
+GPUS: '0,1,2,3,4,5'
 LOG_FREQUENT: 100
 VAL_FREQUENT: 1
 CHECKPOINT_FREQUENT: 1
@@ -30,8 +30,8 @@ DATASET:
   ZIP_MODE: false
   CACHE_MODE: false
   IGNORE_DB_CACHE: true
-  PHRASE_CLS: false
-  SMALL: false
+  PHRASE_CLS: true
+  SMALL: true
   NEGATIVE_SAMPLING: 'hard'
   ALIGN_CAPTION_IMG: true
 
@@ -109,7 +109,7 @@ TRAIN:
   RESUME: false
   AUTO_RESUME: true
   BEGIN_EPOCH: 0
-  END_EPOCH: 5
+  END_EPOCH: 2
   OPTIMIZER: 'SGD'
   CLIP_GRAD_NORM: 10
   GRAD_ACCUMULATE_STEPS: 8

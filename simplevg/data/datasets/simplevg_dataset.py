@@ -216,7 +216,7 @@ class SimpleVGDataset(Dataset):
 
         # Tokenize and align tokens with visual boxes
         tokens_seqs = [self.tokenizer.tokenize(raw_text) for raw_text in formatted_text]
-        txt_visual_ground = [[relevant_boxes[0][i]]*len(tokens_seq) for i, tokens_seq in enumerate(tokens_seqs)]
+        txt_visual_ground = [[relevant_boxes[i]]*len(tokens_seq) for i, tokens_seq in enumerate(tokens_seqs)]
 
         # Flatten lists
         flat_tokens = [token for sublist in tokens_seqs for token in sublist]
@@ -260,9 +260,9 @@ class SimpleVGDataset(Dataset):
     @property
     def data_names(self):
         if not self.test_mode:
-            data_names = ['image', 'boxes', 'caption1', 'caption2', 'im_info', 'label']
+            data_names = ['image', 'boxes', 'caption', 'im_info', 'label']
         else:
-            data_names = ['image', 'boxes', 'caption1', 'caption2', 'im_info']
+            data_names = ['image', 'boxes', 'caption', 'im_info']
 
         return data_names
 

@@ -129,7 +129,7 @@ class ResNetVLBERT(Module):
         cls_id, sep_id = self.tokenizer.convert_tokens_to_ids(['[CLS]', '[SEP]'])
         sep_pos = 1 + mask.sum(1, keepdim=True)
         input_ids = torch.zeros((batch_size, max_len + 2), dtype=sentence.dtype, device=sentence.device)
-        text_tags = mask.new_zeros((batch_size, max_len + 2))
+        text_tags = sentence.new_zeros((batch_size, max_len + 2))
         input_ids[:, 0] = cls_id
         _batch_inds = torch.arange(sentence.shape[0], device=sentence.device)
         input_ids[_batch_inds, sep_pos] = sep_id
