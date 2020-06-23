@@ -286,6 +286,9 @@ class VGPDataset(Dataset):
                     phrase_mask2[idx_start:idx_start + len(formatted_phrase)] = k + 1
                 final_input_1 = torch.cat((final_input_1, phrase_mask1), dim=1)
                 final_input_2 = torch.cat((final_input_2, phrase_mask2), dim=1)
+                if phrase_mask1.max() == 2 and 1 not in phrase_mask1:
+                    print(idb)
+                    assert False
 
                 if not self.test_mode:
                     label = torch.as_tensor([[int(idb['label']), int(lbl)] for lbl in idb["phrase_labels"]])

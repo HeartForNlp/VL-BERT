@@ -21,12 +21,15 @@ class LossLogger(EvalMetric):
 
 class Accuracy(EvalMetric):
     def __init__(self, prefix_name="", allreduce=False, num_replicas=1):
-        self.prefix.prefix = prefix_name
+        self.prefix = prefix_name
         super(Accuracy, self).__init__(prefix_name + 'Acc', allreduce, num_replicas)
 
     def update(self, outputs):
         with torch.no_grad():
-            _filter = outputs[self.prefix + '_label'] != -1
+            _filter = (outputs[self.prefix + '_label'] != -1).view((-1))
+            # If in this batch there were no samples to classify
+            if not _filter.any():
+                return
             cls_logits = outputs[self.prefix + '_label_logits'][_filter]
             label = outputs[self.prefix + '_label'][_filter]
             if cls_logits.dim() == 1:

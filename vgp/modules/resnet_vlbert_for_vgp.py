@@ -181,12 +181,23 @@ class ResNetVLBERT(Module):
             phr_mask[input_mask2] = phrase2_mask[mask2]
 
             # add offsets so that every pair of phrases gets a unique id in the batch
+            check = {}
+            check["original"] = phr_mask
             no_phr_mask = (phr_mask == 0)
             n_phr = torch.max(phr_mask, dim=1)[0]
             offsets = phr_mask.new_zeros((phr_mask.size(0)))
             offsets[1:] = torch.cumsum(n_phr[:-1], dim=0)
             phr_mask += offsets.unsqueeze(1)
+            check["offsetted"] = phr_mask
             phr_mask[no_phr_mask] = 0
+            check["final"] = phr_mask
+            if phr_mask.max() == 2:
+                if 1 not in phr_mask:
+                    print(check)
+                    print(phrase1_mask)
+                    print(phrase2_mask)
+                    print(offsets)
+                    print(no_phr_mask)
 
         return input_ids, input_type_ids, text_tags, input_mask, phr_mask
 
@@ -233,7 +244,6 @@ class ResNetVLBERT(Module):
             phrase2_mask = sentence2[:, :, 2]
             sentence_label = label[:, 0, 0].view(-1)
             phrase_labels = label[:, :, 1]
-            phrase_labels = phrase_labels[phrase_labels > -1]
         else:
             phrase1_mask, phrase2_mask = None, None
             sentence_label = label.view(-1)
@@ -309,13 +319,18 @@ class ResNetVLBERT(Module):
                         'sentence_cls_loss': sentence_cls_loss})
 
         # phrasal paraphrases classification (later)
-        phrase_cls_loss = 0.
-        if self.use_phrasal_paraphrases and phrase_mask.max() > 0:
-            phrase_cls_logits = self.get_phrase_cls(hidden_states_text, phrase_mask, text_token_type_ids)
-            phrase_cls_loss = F.cross_entropy(phrase_cls_logits, phrase_labels, reduction="mean")
-            outputs.update({"phrase_label_logits": phrase_cls_logits, 
-                            "phrase_label": phrase_labels, 
+        phrase_cls_loss = sentence_logits.new_zeros(())
+        if self.use_phrasal_paraphrases:
+            phrase_cls_logits = sentence_logits.new_zeros((phrase_labels.size(0), 5))
+            outputs.update({"phrase_label": phrase_labels, 
+                            "phrase_label_logits": phrase_cls_logits, 
                             "phrase_cls_loss": phrase_cls_loss})
+            if phrase_mask.max() > 0:
+                logits = self.get_phrase_cls(hidden_states_text, phrase_mask, text_token_type_ids, lbl=phrase_labels)
+                phrase_cls_loss = F.cross_entropy(logits, phrase_labels[phrase_labels > -1], reduction="mean")
+                phrase_cls_logits[(phrase_labels > -1).view((-1))] = logits
+                outputs.update({"phrase_label_logits": phrase_cls_logits,
+                                "phrase_cls_loss": phrase_cls_loss})
 
         # Handle attention supervision, suffix 1 refers to text-to-roi attention and suffix 2 refers to roi-to-text
         attention_loss_1 = 0.
@@ -370,8 +385,8 @@ class ResNetVLBERT(Module):
         sentence2_tags = sentence2[:, :, 1]
 
         if self.use_phrasal_paraphrases:
-            phrase1_mask = sentence1[:, :, -1]
-            phrase2_mask = sentence2[:, :, -1]
+            phrase1_mask = sentence1[:, :, 2]
+            phrase2_mask = sentence2[:, :, 2]
         else:
             phrase1_mask, phrase2_mask = None, None
 
@@ -422,17 +437,29 @@ class ResNetVLBERT(Module):
         else:
             sentence_logits = sentence_logits.view(-1)
         outputs.update({'sentence_label_logits': sentence_logits})
+        
+        if self.use_phrasal_paraphrases:
+            outputs.update({"phrase_label_logits": phrase_mask.new_zeros((1, 5))})
+            if phrase_mask.max() > 0:
+                phrase_cls_logits = self.get_phrase_cls(hidden_states_text, phrase_mask, text_token_type_ids)
+                outputs.update({"phrase_label_logits": phrase_cls_logits})
 
         return outputs
 
-    def get_phrase_cls(self, encoded_rep, phr_mask, token_type):
+    def get_phrase_cls(self, encoded_rep, phr_mask, token_type, lbl=None):
         n_pairs = phr_mask.max().item()
         phr_reps = encoded_rep.new_zeros((n_pairs, 2, encoded_rep.size(-1)))
         for i in range(n_pairs):
             # max pool representation of first phrase
-            phr_reps[i, 0] = encoded_rep[(token_type == 0) & (phr_mask == i + 1)].max(dim=0)[0]
+            try:
+                phr_reps[i, 0] = encoded_rep[(token_type == 0) & (phr_mask == i + 1)].max(dim=0)[0]
             # max pool representation of second phrase
-            phr_reps[i, 1] = encoded_rep[(token_type == 1) & (phr_mask == i + 1)].max(dim=0)[0]
+                phr_reps[i, 1] = encoded_rep[(token_type == 1) & (phr_mask == i + 1)].max(dim=0)[0]
+            except:
+                print(lbl)
+                print(phr_mask)
+                print(token_type)
+                assert False
         final_phrases_rep = torch.cat((phr_reps[:, 0], phr_reps[:, 1], torch.abs(phr_reps[:, 0] - phr_reps[:, 1]),
                                        torch.mul(phr_reps[:, 0], phr_reps[:, 1])), dim=1)
         output_logits = self.phrasal_cls(final_phrases_rep)
