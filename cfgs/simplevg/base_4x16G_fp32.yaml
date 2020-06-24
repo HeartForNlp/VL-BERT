@@ -27,7 +27,7 @@ DATASET:
   ZIP_MODE: false
   CACHE_MODE: false
   IGNORE_DB_CACHE: true
-  SMALL: true
+  SMALL: false
   NEGATIVE_SAMPLING: 'hard'
 
 NETWORK:
