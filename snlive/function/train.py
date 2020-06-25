@@ -79,6 +79,7 @@ def train_net(args, config):
                 rank=rank,
                 group_name='mtorch')
         print(f'native distributed, size: {world_size}, rank: {rank}, local rank: {local_rank}')
+        os.environ['CUDA_VISIBLE_DEVICES'] = config.GPUS
         torch.cuda.set_device(local_rank)
         config.GPUS = str(local_rank)
         model = model.cuda()
