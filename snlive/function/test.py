@@ -10,7 +10,6 @@ import torch
 from common.utils.load import smart_load_model_state_dict
 from common.trainer import to_cuda
 from common.utils.create_logger import create_logger
-from common.metrics.vgp_metrics import compute_metrics_sentence_level
 from snlive.data.build import make_dataloader
 from snlive.modules import *
 
@@ -121,5 +120,5 @@ def test_net(args, config, ckpt_path=None, save_path=None, save_name=None):
         sentence_labels = np.array(dataframe["sentence_labels"].values)
 
     # Evaluate predictions
-    accuracy = compute_metrics_sentence_level("overall_accuracy", sentence_prediction, sentence_labels)
+    accuracy = (sentence_prediction == sentence_labels).mean()
     print("Accuracy on test set is: {}".format(str(accuracy)))
