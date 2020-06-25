@@ -1,6 +1,6 @@
 ---
 RNG_SEED: 12345
-OUTPUT_PATH: './output/vl-bert/vgp/Version5/'
+OUTPUT_PATH: './output/vl-bert/simplevg/Version1/'
 MODULE: ResNetVLBERT
 GPUS: '0,1,2,3,4,5'
 LOG_FREQUENT: 100
@@ -13,7 +13,7 @@ SCALES:
 - 1000
 
 DATASET:
-  DATASET: vgp
+  DATASET: simplevg
   LABEL_INDEX_IN_BATCH: -1
   APPEND_INDEX: false
   DATASET_PATH: './data/vgp'
@@ -23,17 +23,12 @@ DATASET:
   TEST_CAPTIONS_SET: 'test_captions'
   ROI_SET: 'Annotations'
   IMAGE_SET: 'flickr30k-images'
-  TRAIN_ANNOTATION_FILE: 'full_data_type_phrase_pair_train.csv'
-  VAL_ANNOTATION_FILE: 'full_data_type_phrase_pair_val.csv'
-  TEST_ANNOTATION_FILE: 'full_data_type_phrase_pair_test.csv'
   ADD_IMAGE_AS_A_BOX: true
   ZIP_MODE: false
   CACHE_MODE: false
   IGNORE_DB_CACHE: true
-  PHRASE_CLS: true
-  SMALL: true
+  SMALL: false
   NEGATIVE_SAMPLING: 'hard'
-  ALIGN_CAPTION_IMG: true
 
 NETWORK:
   PARTIAL_PRETRAIN: "./model/pretrained_model/vl-bert-base-e2e.model"
@@ -68,7 +63,6 @@ NETWORK:
   BERT_PRETRAINED_EPOCH: 0
   BERT_FROZEN: false
   ENABLE_CNN_REG_LOSS: false
-  PHRASE_LOSS_WEIGHT: 1.0
   CNN_LOSS_TOP: false
   NO_GROUNDING: true
   SUPERVISE_ATTENTION: true
@@ -93,10 +87,6 @@ NETWORK:
     visual_ln: true
     object_word_embed_mode: 2
   SENTENCE:
-    CLASSIFIER_TYPE: "1fc"
-    CLASSIFIER_HIDDEN_SIZE: 1024
-    CLASSIFIER_DROPOUT: 0.1
-  PHRASE:
     CLASSIFIER_TYPE: "1fc"
     CLASSIFIER_HIDDEN_SIZE: 1024
     CLASSIFIER_DROPOUT: 0.1
