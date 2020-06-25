@@ -22,7 +22,6 @@ class ResNetVLBERT(Module):
         super(ResNetVLBERT, self).__init__(config)
         self.enable_cnn_reg_loss = config.NETWORK.ENABLE_CNN_REG_LOSS
         self.cnn_loss_top = config.NETWORK.CNN_LOSS_TOP
-        self.supervise_attention = config.NETWORK.SUPERVISE_ATTENTION
         if not config.NETWORK.BLIND:
             self.image_feature_extractor = FastRCNN(config,
                                                     average_pool=True,
@@ -67,12 +66,12 @@ class ResNetVLBERT(Module):
                 torch.nn.Linear(dim, config.NETWORK.SENTENCE.CLASSIFIER_HIDDEN_SIZE),
                 torch.nn.ReLU(inplace=True),
                 torch.nn.Dropout(config.NETWORK.SENTENCE.CLASSIFIER_DROPOUT, inplace=False),
-                torch.nn.Linear(config.NETWORK.SENTENCE.CLASSIFIER_HIDDEN_SIZE, 1),
+                torch.nn.Linear(config.NETWORK.SENTENCE.CLASSIFIER_HIDDEN_SIZE, 3),
             )
         elif config.NETWORK.SENTENCE.CLASSIFIER_TYPE == "1fc":
             self.sentence_cls = torch.nn.Sequential(
                 torch.nn.Dropout(config.NETWORK.SENTENCE.CLASSIFIER_DROPOUT, inplace=False),
-                torch.nn.Linear(dim, 1)
+                torch.nn.Linear(dim, 3)
             )
         else:
             raise ValueError("Classifier type: {} not supported!".format(config.NETWORK.SENTENCE.CLASSIFIER_TYPE))
@@ -124,24 +123,22 @@ class ResNetVLBERT(Module):
         row_id += row_id_broadcaster
         return object_reps[row_id.view(-1), span_tags_fixed.view(-1)].view(*span_tags_fixed.shape, -1)
 
-    def prepare_text(self, sentence, mask, sentence_tags):
+    def prepare_text(self, sentence, mask):
         batch_size, max_len = sentence.shape
         cls_id, sep_id = self.tokenizer.convert_tokens_to_ids(['[CLS]', '[SEP]'])
         sep_pos = 1 + mask.sum(1, keepdim=True)
         input_ids = torch.zeros((batch_size, max_len + 2), dtype=sentence.dtype, device=sentence.device)
-        text_tags = sentence.new_zeros((batch_size, max_len + 2))
         input_ids[:, 0] = cls_id
         _batch_inds = torch.arange(sentence.shape[0], device=sentence.device)
         input_ids[_batch_inds, sep_pos] = sep_id
         input_ids[:, 1:-1] = sentence
-        text_tags[:, 1:-1] = sentence_tags
         input_mask = input_ids > 0
-        return input_ids, text_tags, input_mask
+        return input_ids, input_mask
 
     def train_forward(self,
                       images,
                       boxes,
-                      sentence,
+                      hypothesis,
                       im_info,
                       label):
         ###########################################
@@ -168,25 +165,19 @@ class ResNetVLBERT(Module):
                                                     segms=None)
 
         # For now no tags
-        sentence_ids = sentence[:, :, 0]
-        mask = (sentence[:, :, 0] > 0.5)
-        sentence_tags = sentence[:, :, 1]
+        mask = (hypothesis > 0.5)
         sentence_label = label.view(-1)
 
 
         ############################################
         
         # prepare text
-        text_input_ids, text_tags, text_mask = self.prepare_text(sentence_ids,
-                                                                 mask,
-                                                                 sentence_tags)
+        text_input_ids, text_mask = self.prepare_text(hypothesis, mask)
         text_token_type_ids = text_input_ids.new_zeros(text_input_ids.shape)
 
         # Add visual feature to text elements
-        if self.config.NETWORK.NO_GROUNDING:
-            text_visual_embeddings = self._collect_obj_reps(text_tags.new_zeros(text_tags.size()), obj_reps['obj_reps'])
-        else:
-            text_visual_embeddings = self._collect_obj_reps(text_tags, obj_reps['obj_reps'])
+        text_visual_embeddings = self._collect_obj_reps(text_input_ids.new_zeros(text_input_ids.size()),
+                                                        obj_reps['obj_reps'])
         # Add textual feature to image element
         if self.config.NETWORK.BLIND:
             object_linguistic_embeddings = boxes.new_zeros((*boxes.shape[:-1], self.config.NETWORK.VLBERT.hidden_size))
@@ -201,56 +192,35 @@ class ResNetVLBERT(Module):
         if self.config.NETWORK.NO_OBJ_ATTENTION or self.config.NETWORK.BLIND:
             box_mask.zero_()
 
-        if self.supervise_attention:
-            hidden_states_text, hidden_states_objects, pooled_rep, attention_probs = \
-                self.vlbert(text_input_ids,
-                            text_token_type_ids,
-                            text_visual_embeddings,
-                            text_mask,
-                            object_vl_embeddings,
-                            box_mask,
-                            output_all_encoded_layers=False,
-                            output_text_and_object_separately=True,
-                            output_attention_probs=self.supervise_attention)
-        else:
-            hidden_states_text, hidden_states_objects, pooled_rep = self.vlbert(text_input_ids,
-                                                                                text_token_type_ids,
-                                                                                text_visual_embeddings,
-                                                                                text_mask,
-                                                                                object_vl_embeddings,
-                                                                                box_mask,
-                                                                                output_all_encoded_layers=False,
-                                                                                output_text_and_object_separately=True,
-                                                                                output_attention_probs=False)
+        _, pooled_rep = self.vlbert(text_input_ids,
+                                    text_token_type_ids,
+                                    text_visual_embeddings,
+                                    text_mask,
+                                    object_vl_embeddings,
+                                    box_mask,
+                                    output_all_encoded_layers=False,
+                                    output_text_and_object_separately=False,
+                                    output_attention_probs=False)
 
         ###########################################
         outputs = {}
         
         # sentence classification
-        sentence_logits = self.sentence_cls(pooled_rep).view(-1)
-        sentence_cls_loss = F.binary_cross_entropy_with_logits(sentence_logits, sentence_label.type(torch.float32))
+        sentence_logits = self.sentence_cls(pooled_rep).view((-1, 3))
+        sentence_cls_loss = F.cross_entropy(sentence_logits, sentence_label)
 
         outputs.update({'sentence_label_logits': sentence_logits,
                         'sentence_label': sentence_label.long(),
                         'sentence_cls_loss': sentence_cls_loss})
 
-        # Handle attention supervision, suffix 1 refers to text-to-roi attention and suffix 2 refers to roi-to-text
-        attention_loss_1 = 0.
-        attention_loss_2 = 0.
-        if self.supervise_attention:
-            attention_loss_1, attention_loss_2 = get_attention_supervision_loss(attention_probs, text_tags, text_mask,
-                                                                                box_mask)
-            outputs.update({"attention_loss_1": attention_loss_1, "attention_loss_2": attention_loss_2})
-
-        loss = sentence_cls_loss.mean() + self.config.NETWORK.ATTENTION_LOSS_WEIGHT * attention_loss_1 + \
-               self.config.NETWORK.ATTENTION_LOSS_WEIGHT * attention_loss_2
+        loss = sentence_cls_loss.mean()
 
         return outputs, loss
 
     def inference_forward(self,
                           images,
                           boxes,
-                          sentence,
+                          hypothesis,
                           im_info):
         ###########################################
         # visual feature extraction
@@ -276,23 +246,17 @@ class ResNetVLBERT(Module):
                                                     segms=None)
 
         # For now no tags
-        sentence_ids = sentence[:, :, 0]
-        mask = (sentence[:, :, 0] > 0.5)
-        sentence_tags = sentence[:, :, 1]
+        mask = (hypothesis > 0.5)
 
         ############################################
 
         # prepare text
-        text_input_ids, text_tags, text_mask = self.prepare_text(sentence_ids,
-                                                                 mask,
-                                                                 sentence_tags)
+        text_input_ids, text_mask = self.prepare_text(hypothesis, mask)
         text_token_type_ids = text_input_ids.new_zeros(text_input_ids.shape)
 
         # Add visual feature to text elements
-        if self.config.NETWORK.NO_GROUNDING:
-            text_visual_embeddings = self._collect_obj_reps(text_tags.new_zeros(text_tags.size()), obj_reps['obj_reps'])
-        else:
-            text_visual_embeddings = self._collect_obj_reps(text_tags, obj_reps['obj_reps'])
+        text_visual_embeddings = self._collect_obj_reps(text_input_ids.new_zeros(text_input_ids.size()),
+                                                        obj_reps['obj_reps'])
         # Add textual feature to image element
         if self.config.NETWORK.BLIND:
             object_linguistic_embeddings = boxes.new_zeros((*boxes.shape[:-1], self.config.NETWORK.VLBERT.hidden_size))
@@ -306,96 +270,33 @@ class ResNetVLBERT(Module):
         # Visual Linguistic BERT
         if self.config.NETWORK.NO_OBJ_ATTENTION or self.config.NETWORK.BLIND:
             box_mask.zero_()
-        hidden_states_text, hidden_states_objects, pooled_rep = self.vlbert(text_input_ids,
-                                                                            text_token_type_ids,
-                                                                            text_visual_embeddings,
-                                                                            text_mask,
-                                                                            object_vl_embeddings,
-                                                                            box_mask,
-                                                                            output_all_encoded_layers=False,
-                                                                            output_text_and_object_separately=True)
+
+        _, pooled_rep = self.vlbert(text_input_ids,
+                                    text_token_type_ids,
+                                    text_visual_embeddings,
+                                    text_mask,
+                                    object_vl_embeddings,
+                                    box_mask,
+                                    output_all_encoded_layers=False,
+                                    output_text_and_object_separately=False,
+                                    output_attention_probs=False)
 
         ###########################################
         outputs = {}
+
         # sentence classification
-        sentence_logits = self.sentence_cls(pooled_rep).view(-1)
+        sentence_logits = self.sentence_cls(pooled_rep).view((-1, 3))
 
         outputs.update({'sentence_label_logits': sentence_logits})
 
         return outputs
 
 
-def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_mask):
-    # suffix 1 refers to text-to-roi attention and suffix 2 refers to roi-to-text
-    # reformat attention output by transposing batch and layer dimension
-    attention_probs = [layer.unsqueeze(0) for layer in attention_probs]
-    attention_probs = torch.cat(attention_probs).permute((1, 0, 2, 3, 4))
-    attention_loss_1 = text_tags.new_zeros((len(attention_probs)), device=text_tags.device, dtype=torch.float32)
-    attention_loss_2 = text_tags.new_zeros((len(attention_probs)), device=text_tags.device, dtype=torch.float32)
-    grounded_words = torch.cat(((text_tags > 0),
-                                text_tags.new_zeros((text_tags.size(0),
-                                                     attention_probs[0].size(-1) - text_tags.size(1)),
-                                                    dtype=torch.uint8)), dim=1)
-    boxes_pos = torch.cat((box_mask.new_zeros((box_mask.size(0),
-                                               attention_probs[0].size(-1) - 1 - box_mask.size(1)),
-                                              dtype=torch.uint8), box_mask,
-                           box_mask.new_zeros((box_mask.size(0), 1), dtype=torch.uint8)), dim=1)
-    text_pos = torch.cat((text_mask, text_mask.new_zeros((text_mask.size(0),
-                                                          attention_probs[0].size(-1) - text_mask.size(1)),
-                                                         dtype=torch.uint8)), dim=1)
-    n_layers = attention_probs.size(1)
-    n_heads = attention_probs.size(2)
-    n_grounded_boxes = torch.tensor([len(torch.unique(text_tags[i][text_tags[i] > 0]))
-                                     for i in range(len(text_tags))]).sum()
-    epsilon = 10e-6
-    for i, attention in enumerate(attention_probs):
-        if text_tags[i].sum().item() == 0:
-            attention_loss_1[i] = 0.
-            attention_loss_2[i] = 0.
-            continue
-        else:
-            # Handle text-to-roi attention
-            pred_attention_1 = attention[:, :, grounded_words[i]][:, :, :, boxes_pos[i]]
-            norm_log_attention_1 = torch.log(epsilon +
-                                             pred_attention_1 / (pred_attention_1.sum(-1, keepdim=True) + epsilon))
-            attention_label_1 = text_tags[i][text_tags[i] > 0]
-            # broadcast labels to same shape as attention
-            attention_label_1 = attention_label_1.unsqueeze(0).unsqueeze(0).repeat((n_layers, n_heads, 1))
-            # flatten both attention and labels with respect to layers and heads
-            norm_log_attention_1 = norm_log_attention_1.view((-1, pred_attention_1.size(-1)))
-            attention_label_1 = attention_label_1.view((-1))
-            attention_loss_1[i] = F.nll_loss(norm_log_attention_1, attention_label_1, reduction="sum")
-
-            # Handle roi-to-text attention
-            grounded_boxes = torch.unique(attention_label_1)
-            pred_attention_2 = attention[:, :, boxes_pos[i]][:, :, grounded_boxes][:, :, :, text_pos[i]]
-            norm_log_attention_2 = torch.log(epsilon +
-                                             pred_attention_2 / (pred_attention_2.sum(-1, keepdim=True) + epsilon))
-            attention_label_2 = text_tags[i].new_zeros((len(grounded_boxes), text_mask[i].sum()))
-            attention_label_2[text_tags[i][text_mask[i]].unsqueeze(0).repeat(len(grounded_boxes), 1) ==
-                              grounded_boxes.unsqueeze(1).repeat(1, text_mask[i].sum())] = 1
-            # broadcast labels to same shape as attention
-            attention_label_2 = attention_label_2.unsqueeze(0).unsqueeze(0).repeat((n_layers, n_heads, 1, 1))
-            # flatten both attention and labels with respect to layers and heads
-            norm_log_attention_2 = norm_log_attention_2.view((-1, pred_attention_2.size(-1)))
-            attention_label_2 = attention_label_2.view((-1, attention_label_2.size(-1)))
-            attention_loss_2[i] = F.binary_cross_entropy_with_logits(norm_log_attention_2, attention_label_2.type(torch.float32), reduction="sum") / text_mask[i].sum()
-
-    # Average loss across all images and all grounded words
-    if grounded_words.sum() != 0:
-        attention_loss_1 = (attention_loss_1.sum() / (grounded_words.sum() * n_layers * n_heads))
-        attention_loss_2 = (attention_loss_2.sum() / (n_grounded_boxes * n_layers * n_heads))
-    else:
-        attention_loss_1 = attention_loss_1.sum()
-        attention_loss_2 = attention_loss_2.sum()
-        
-    return attention_loss_1, attention_loss_2
-
-
 def test_module():
-    from simplevg.function.config import config, update_config
-    from simplevg.data.build import make_dataloader
-    cfg_path = os.path.join(root_path, 'cfgs', 'simplevg', 'base_4x16G_fp32.yaml')
+    from snlive.function.config import config, update_config
+    from snlive.data.build import make_dataloader
+    os.chdir("../../")
+    cfg_path = os.path.join('cfgs', 'snlive', 'base_4x16G_fp32.yaml')
     update_config(cfg_path)
     dataloader = make_dataloader(config, dataset=None, mode='train')
     module = ResNetVLBERT(config)

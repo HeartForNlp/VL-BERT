@@ -1,4 +1,4 @@
-from .resnet_vlbert_for_simplevg import ResNetVLBERT
+from .resnet_vlbert_for_snlive import ResNetVLBERT
 
 
 

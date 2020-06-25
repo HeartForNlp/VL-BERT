@@ -16,15 +16,15 @@ from common.utils.misc import summary_parameters, bn_fp16_half_eval
 from common.utils.load import smart_resume, smart_partial_load_model_state_dict
 from common.trainer import train
 from common.metrics.composite_eval_metric import CompositeEvalMetric
-from common.metrics import simplevg_metrics
+from common.metrics import snlive_metrics
 from common.callbacks.batch_end_callbacks.speedometer import Speedometer
 from common.callbacks.epoch_end_callbacks.validation_monitor import ValidationMonitor
 from common.callbacks.epoch_end_callbacks.checkpoint import Checkpoint
 from common.lr_scheduler import WarmupMultiStepLR
 from common.nlp.bert.optimization import AdamW, WarmupLinearSchedule
-from simplevg.data.build import make_dataloader, build_dataset, build_transforms
-from simplevg.modules import *
-from simplevg.function.val import do_validation
+from snlive.data.build import make_dataloader, build_dataset, build_transforms
+from snlive.modules import *
+from snlive.function.val import do_validation
 
 try:
     from apex import amp
@@ -232,20 +232,14 @@ def train_net(args, config):
         smart_partial_load_model_state_dict(model, pretrain_state_dict)
 
     # metrics
-    train_metrics_list = [simplevg_metrics.Accuracy(allreduce=args.dist, num_replicas=world_size if args.dist else 1)]
-    val_metrics_list = [simplevg_metrics.Accuracy(allreduce=args.dist, num_replicas=world_size if args.dist else 1)]
+    train_metrics_list = [snlive_metrics.Accuracy(allreduce=args.dist, num_replicas=world_size if args.dist else 1)]
+    val_metrics_list = [snlive_metrics.Accuracy(allreduce=args.dist, num_replicas=world_size if args.dist else 1)]
         
     for output_name, display_name in config.TRAIN.LOSS_LOGGERS:
         train_metrics_list.append(
-            simplevg_metrics.LossLogger(output_name, display_name=display_name, allreduce=args.dist,
+            snlive_metrics.LossLogger(output_name, display_name=display_name, allreduce=args.dist,
                                         num_replicas=world_size if args.dist else 1))
-    if config.NETWORK.SUPERVISE_ATTENTION:
-        train_metrics_list.append(
-            simplevg_metrics.LossLogger("attention_loss_1", display_name="attention_loss_txt-roi", allreduce=args.dist,
-                                        num_replicas=world_size if args.dist else 1))
-        train_metrics_list.append(
-            simplevg_metrics.LossLogger("attention_loss_2", display_name="attention_loss_roi-text", allreduce=args.dist,
-                                        num_replicas=world_size if args.dist else 1))
+
 
     train_metrics = CompositeEvalMetric()
     val_metrics = CompositeEvalMetric()

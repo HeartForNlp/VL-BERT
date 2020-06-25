@@ -4,9 +4,9 @@ import argparse
 import torch
 import subprocess
 
-from simplevg.function.config import config, update_config
-from simplevg.function.train import train_net
-from simplevg.function.test import test_net
+from snlive.function.config import config, update_config
+from snlive.function.train import train_net
+from snlive.function.test import test_net
 
 def parse_args():
     parser = argparse.ArgumentParser('Train Cognition Network')

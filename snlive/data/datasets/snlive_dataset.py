@@ -60,7 +60,8 @@ class SnliVEDataset(Dataset):
 
     def load_captions(self):
         database = []
-
+        print('loading database from {} and creating pairs...'.format(self.annotations_file))
+        tic = time.time()
         with jsonlines.open(self.annotations_file) as jsonl_file:
             for line in jsonl_file:
                 #print(line.keys())
@@ -73,10 +74,6 @@ class SnliVEDataset(Dataset):
                 # => hypothesis is the text hypothesis
                 hypothesis = str(line['sentence2'])
                 database.append({"img_id": Flikr30kID, "hypothesis": hypothesis, "label": encode_label(label)})
-        # ignore or not find cached database, reload it from annotation file
-        print('loading database from {} and creating pairs...'.format(self.annotations_file))
-        tic = time.time()
-
 
         print('Done (t={:.2f}s)'.format(time.time() - tic))
 

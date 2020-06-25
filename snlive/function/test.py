@@ -11,8 +11,8 @@ from common.utils.load import smart_load_model_state_dict
 from common.trainer import to_cuda
 from common.utils.create_logger import create_logger
 from common.metrics.vgp_metrics import compute_metrics_sentence_level
-from simplevg.data.build import make_dataloader
-from simplevg.modules import *
+from snlive.data.build import make_dataloader
+from snlive.modules import *
 
 try:
     from apex import amp
@@ -103,10 +103,7 @@ def test_net(args, config, ckpt_path=None, save_path=None, save_name=None):
         sentence_logits = np.concatenate(sentence_logits, axis=0)
         test_ids = np.concatenate(test_ids, axis=0)
         sentence_labels = np.concatenate(sentence_labels, axis=0)
-        if config.DATASET.ALIGN_CAPTION_IMG:
-            sentence_prediction = np.argmax(sentence_logits, axis=1).reshape(-1)
-        else:
-            sentence_prediction = (sentence_logits > 0.).astype(int).reshape(-1)
+        sentence_prediction = np.argmax(sentence_logits, axis=1).reshape(-1)
 
         # generate final result csv
         dataframe = pd.DataFrame(data=sentence_prediction, columns=["sentence_pred_label"])
@@ -124,6 +121,5 @@ def test_net(args, config, ckpt_path=None, save_path=None, save_name=None):
         sentence_labels = np.array(dataframe["sentence_labels"].values)
 
     # Evaluate predictions
-    for metric in ["overall_accuracy", "easy_accuracy", "alignment_accuracy"]:
-        accuracy = compute_metrics_sentence_level(metric, sentence_prediction, sentence_labels)
-        print("{} on test set is: {}".format(metric, str(accuracy)))
+    accuracy = compute_metrics_sentence_level("overall_accuracy", sentence_prediction, sentence_labels)
+    print("Accuracy on test set is: {}".format(str(accuracy)))

@@ -3,8 +3,8 @@ import os
 import argparse
 from copy import deepcopy
 
-from simplevg.function.config import config, update_config
-from simplevg.function.test import test_net
+from snlive.function.config import config, update_config
+from snlive.function.test import test_net
 
 
 def parse_args():
