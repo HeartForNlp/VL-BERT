@@ -79,6 +79,7 @@ class VGPDataset(Dataset):
 
         if zip_mode:
             self.zipreader = ZipReader()
+        self.bad_stuff = []
 
         self.database = self.load_captions(self.captions_set)
 
@@ -142,7 +143,18 @@ class VGPDataset(Dataset):
                             'label': 0
                         }
                         if self.phrase_cls:
-                            db_i["phrases_1"], db_i["phrases_2"], db_i["phrase_labels"] = get_clean_phrases(phrases_df, img_id, list_captions[i], list_captions[j])
+                            db_i["phrases_1"], db_i["phrases_2"], \
+                            db_i["phrase_labels"] = get_clean_phrases(phrases_df, img_id, list_captions[i],
+                                                                      list_captions[j])
+                            for x in range(len(db_i["phrases_1"])):
+                                for y in range(len(db_i["phrases_1"])):
+                                    if x != y and db_i["phrases_1"][x] in db_i["phrases_1"][y]:
+                                        self.bad_stuff.append(img_id)
+                            for x in range(len(db_i["phrases_2"])):
+                                for y in range(len(db_i["phrases_2"])):
+                                    if x != y and db_i["phrases_2"][x] in db_i["phrases_2"][y]:
+                                        self.bad_stuff.append(img_id)
+
                         database.append(db_i)
 
                 # Select one or two negative captions
@@ -243,10 +255,10 @@ class VGPDataset(Dataset):
         txt_visual_ground2 = [[relevant_boxes[1][i]] * len(tokens) for i, tokens in enumerate(tokens2)]
 
         # Flatten lists
-        flat_tokens1 = [token for sublist in tokens1 for token in sublist]
-        flat_tokens2 = [token for sublist in tokens2 for token in sublist]
-        txt_visual_ground1 = [box for sublist in txt_visual_ground1 for box in sublist]
-        txt_visual_ground2 = [box for sublist in txt_visual_ground2 for box in sublist]
+        flat_tokens1 = flatten_l(tokens1)
+        flat_tokens2 = flatten_l(tokens2)
+        txt_visual_ground1 = flatten_l(txt_visual_ground1)
+        txt_visual_ground2 = flatten_l(txt_visual_ground2)
 
         # Convert token to ids and concatenate visual grounding
         caption1_ids = torch.as_tensor(self.tokenizer.convert_tokens_to_ids(flat_tokens1)).unsqueeze(1)
@@ -266,29 +278,37 @@ class VGPDataset(Dataset):
             if label == 0 and len(idb["phrase_labels"]) > 0:
                 phrases_1 = idb["phrases_1"]
                 phrases_2 = idb["phrases_2"]
-                phrase_mask1 = final_input_1.new_zeros((len(flat_tokens1), 1))
-                phrase_mask2 = final_input_2.new_zeros((len(flat_tokens2), 1))
+                phrase_mask1 = final_input_1.new_zeros((len(flat_tokens1), len(phrases_1)))
+                phrase_mask2 = final_input_2.new_zeros((len(flat_tokens2), len(phrases_2)))
                 for k, phrase in enumerate(phrases_1):
-                    formatted_phrase = self.tokenizer.tokenize(phrase)
-                    idx_start = find_sub_list(formatted_phrase, flat_tokens1)
+                    formatted_phrase = phrase.split(" ")
+                    flattened_caption = " ".join(formatted_text[0]).replace("  ", " ").split(" ")
+                    idx_start = find_sub_list(formatted_phrase, flattened_caption)
                     if idx_start is None:
                         print(idb)
                         print(formatted_phrase)
-                        print(flat_tokens1)
-                    phrase_mask1[idx_start:idx_start+len(formatted_phrase)] = k + 1
+                        print(flattened_caption)
+                    mask = [0] * len(flattened_caption)
+                    mask[idx_start:idx_start+len(formatted_phrase)] = [1] * len(formatted_phrase)
+                    phrase_mask1[:, k] = torch.tensor(flatten_l([[mask[i]] * len(toks)
+                                                            for i, toks in enumerate([self.tokenizer.tokenize(word)
+                                                                                     for word in flattened_caption])]))
                 for k, phrase in enumerate(phrases_2):
-                    formatted_phrase = self.tokenizer.tokenize(phrase)
-                    idx_start = find_sub_list(formatted_phrase, flat_tokens2)
+                    formatted_phrase = phrase.split(" ")
+                    flattened_caption = " ".join(formatted_text[1]).replace("  ", " ").split(" ")
+                    idx_start = find_sub_list(formatted_phrase, flattened_caption)
                     if idx_start is None:
                         print(idb)
                         print(formatted_phrase)
-                        print(flat_tokens2)
-                    phrase_mask2[idx_start:idx_start + len(formatted_phrase)] = k + 1
+                        print(flattened_caption)
+                    mask = [0] * len(flattened_caption)
+                    mask[idx_start:idx_start + len(formatted_phrase)] = [1] * len(formatted_phrase)
+                    phrase_mask2[:, k] = torch.tensor(flatten_l([[mask[i]] * len(toks)
+                                                                 for i, toks in enumerate([self.tokenizer.tokenize(word)
+                                                                                           for word in
+                                                                                           flattened_caption])]))
                 final_input_1 = torch.cat((final_input_1, phrase_mask1), dim=1)
                 final_input_2 = torch.cat((final_input_2, phrase_mask2), dim=1)
-                if phrase_mask1.max() == 2 and 1 not in phrase_mask1:
-                    print(idb)
-                    assert False
 
                 if not self.test_mode:
                     label = torch.as_tensor([[int(idb['label']), int(lbl)] for lbl in idb["phrase_labels"]])
@@ -365,9 +385,13 @@ class VGPDataset(Dataset):
 
 def find_sub_list(sublist, full_list):
     n = len(sublist)
-    for ind in (i for i,e in enumerate(full_list) if e == sublist[0]):
+    for ind in (i for i, e in enumerate(full_list) if e == sublist[0]):
         if full_list[ind:ind+n] == sublist:
             return ind
+
+
+def flatten_l(l):
+    return [item for sublist in l for item in sublist]
         
         
 def rm_inclusions(phrases):
@@ -387,7 +411,7 @@ def rm_redundancies(relevant_phrases):
         redundancies = []
         to_remove = []
         for k, pair1 in enumerate(pairs):
-            for i, pair2 in enumerate(pairs[k +1:]):
+            for i, pair2 in enumerate(pairs[k + 1:]):
                 if (pair1 == pair2).all() or (pair1 == pair2[::-1]).all():
                     redundancies.append([k, k + 1 + i])
         for doublons in redundancies:
@@ -409,16 +433,17 @@ def get_clean_phrases(full_phrases_df, img_id, caption1, caption2):
         if row[0] in caption1 and row[1] in caption2:
             ph1 = row[0]
             ph2 = row[1]
-            ph_label =row[2]
+            ph_label = row[2]
             # avoid case where category label of visual grounding tag gets detected as a phrase
             idx1 = caption1.index(ph1)
             idx2 = caption2.index(ph2)
-            if ((idx1 == 0 or caption1[idx1 - 1] == " ") and caption1[idx1 + len(ph1)] in [" ", "]"]) and ((idx2 == 0 or caption2[idx2 - 1] == " ") and caption2[idx2 + len(ph2)] in [" ", "]"]):
+            if ((idx1 == 0 or caption1[idx1 - 1] == " ") and caption1[idx1 + len(ph1)] in [" ", "]"]) and \
+                    ((idx2 == 0 or caption2[idx2 - 1] == " ") and caption2[idx2 + len(ph2)] in [" ", "]"]):
                 present_pairs.append([ph1, ph2, ph_label])
         elif row[1] in caption1 and row[0] in caption2:
             ph1 = row[1]
             ph2 = row[0]
-            ph_label =row[2]
+            ph_label = row[2]
             # if paraphrase type is entailment, change entailment type to reflect the switching of phrases7 position
             if row[2] == "1":
                 ph_label = "2"
@@ -427,7 +452,8 @@ def get_clean_phrases(full_phrases_df, img_id, caption1, caption2):
             # avoid case where category label of visual grounding tag gets detected as a phrase
             idx1 = caption1.index(ph1)
             idx2 = caption2.index(ph2)
-            if ((idx1 == 0 or caption1[idx1 - 1] == " ") and caption1[idx1 + len(ph1)] in [" ", "]"]) and ((idx2 == 0 or caption2[idx2 - 1] == " ") and caption2[idx2 + len(ph2)] in [" ", "]"]):
+            if ((idx1 == 0 or caption1[idx1 - 1] == " ") and caption1[idx1 + len(ph1)] in [" ", "]"]) and \
+                    ((idx2 == 0 or caption2[idx2 - 1] == " ") and caption2[idx2 + len(ph2)] in [" ", "]"]):
                 present_pairs.append([ph1, ph2, ph_label])
     if len(present_pairs) == 0:
         return [], [], [] 
@@ -442,11 +468,13 @@ def test_vgp():
     image_set = "flickr30k-images"
     roi_set = "Annotations"
     root_path = ""
-    data_path = os.path.join(os.getcwd(), "data/vgp/")
+    data_path = os.path.join("../../../", "data/vgp/")
     dataset = VGPDataset(captions_set="train_captions", ann_file=ann_file, roi_set=roi_set, image_set=image_set,
-                         small_version=False, negative_sampling='hard', root_path=root_path, data_path=data_path)
+                         small_version=True, phrase_cls=True, negative_sampling='hard', root_path=root_path,
+                         data_path=data_path)
+    print(dataset.__getitem__(29300))
+    print(len(dataset.bad_stuff))
     
-
 
 if __name__ == "__main__":
     test_vgp()

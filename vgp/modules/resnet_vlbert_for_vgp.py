@@ -176,28 +176,18 @@ class ResNetVLBERT(Module):
         text_tags[input_mask1] = sentence1_tags[mask1]
         text_tags[input_mask2] = sentence2_tags[mask2]
         if self.use_phrasal_paraphrases:
-            phr_mask = phrase1_mask.new_zeros((batch_size, max_len))
+            phr_mask = phrase1_mask.new_zeros((batch_size, max_len, phrase1_mask.size(-1)))
             phr_mask[input_mask1] = phrase1_mask[mask1]
             phr_mask[input_mask2] = phrase2_mask[mask2]
 
             # add offsets so that every pair of phrases gets a unique id in the batch
-            check = {}
-            check["original"] = phr_mask
             no_phr_mask = (phr_mask == 0)
             n_phr = torch.max(phr_mask, dim=1)[0]
-            offsets = phr_mask.new_zeros((phr_mask.size(0)))
-            offsets[1:] = torch.cumsum(n_phr[:-1], dim=0)
+            offsets = phr_mask.new_zeros((phr_mask.size(0)*phr_mask.size(-1)))
+            offsets[1:] = torch.cumsum(n_phr.view(-1)[:-1], dim=0)
+            offsets = offsets.view((phr_mask.size(0), phr_mask.size(-1)))
             phr_mask += offsets.unsqueeze(1)
-            check["offsetted"] = phr_mask
             phr_mask[no_phr_mask] = 0
-            check["final"] = phr_mask
-            if phr_mask.max() == 2:
-                if 1 not in phr_mask:
-                    print(check)
-                    print(phrase1_mask)
-                    print(phrase2_mask)
-                    print(offsets)
-                    print(no_phr_mask)
 
         return input_ids, input_type_ids, text_tags, input_mask, phr_mask
 
@@ -235,13 +225,14 @@ class ResNetVLBERT(Module):
         sentence1_ids = sentence1[:, :, 0]
         mask1 = (sentence1[:, :, 0] > 0.5)
         sentence1_tags = sentence1[:, :, 1]
+
         sentence2_ids = sentence2[:, :, 0]
         mask2 = (sentence2[:, :, 0] > 0.5)
         sentence2_tags = sentence2[:, :, 1]
 
         if self.use_phrasal_paraphrases:
-            phrase1_mask = sentence1[:, :, 2]
-            phrase2_mask = sentence2[:, :, 2]
+            phrase1_mask = sentence1[:, :, 2:]
+            phrase2_mask = sentence2[:, :, 2:]
             sentence_label = label[:, 0, 0].view(-1)
             phrase_labels = label[:, :, 1]
         else:
@@ -321,6 +312,7 @@ class ResNetVLBERT(Module):
         # phrasal paraphrases classification (later)
         phrase_cls_loss = sentence_logits.new_zeros(())
         if self.use_phrasal_paraphrases:
+            phrase_labels = phrase_labels.view((-1))
             phrase_cls_logits = sentence_logits.new_zeros((phrase_labels.size(0), 5))
             outputs.update({"phrase_label": phrase_labels, 
                             "phrase_label_logits": phrase_cls_logits, 
@@ -328,7 +320,7 @@ class ResNetVLBERT(Module):
             if phrase_mask.max() > 0:
                 logits = self.get_phrase_cls(hidden_states_text, phrase_mask, text_token_type_ids, lbl=phrase_labels)
                 phrase_cls_loss = F.cross_entropy(logits, phrase_labels[phrase_labels > -1], reduction="mean")
-                phrase_cls_logits[(phrase_labels > -1).view((-1))] = logits
+                phrase_cls_logits[(phrase_labels > -1)] = logits
                 outputs.update({"phrase_label_logits": phrase_cls_logits,
                                 "phrase_cls_loss": phrase_cls_loss})
 
@@ -393,14 +385,14 @@ class ResNetVLBERT(Module):
         ############################################
 
         # prepare text
-        text_input_ids, text_token_type_ids, text_tags, text_mask, phrase_masks = self.prepare_text(sentence1_ids,
-                                                                                                    sentence2_ids,
-                                                                                                    mask1,
-                                                                                                    mask2,
-                                                                                                    sentence1_tags,
-                                                                                                    sentence2_tags,
-                                                                                                    phrase1_mask,
-                                                                                                    phrase2_mask)
+        text_input_ids, text_token_type_ids, text_tags, text_mask, phrase_mask = self.prepare_text(sentence1_ids,
+                                                                                                   sentence2_ids,
+                                                                                                   mask1,
+                                                                                                   mask2,
+                                                                                                   sentence1_tags,
+                                                                                                   sentence2_tags,
+                                                                                                   phrase1_mask,
+                                                                                                   phrase2_mask)
 
         # Add visual feature to text elements
         if self.config.NETWORK.NO_GROUNDING:
@@ -451,15 +443,10 @@ class ResNetVLBERT(Module):
         phr_reps = encoded_rep.new_zeros((n_pairs, 2, encoded_rep.size(-1)))
         for i in range(n_pairs):
             # max pool representation of first phrase
-            try:
-                phr_reps[i, 0] = encoded_rep[(token_type == 0) & (phr_mask == i + 1)].max(dim=0)[0]
+            shaped_phr_mask = (phr_mask == i + 1).any(2)
+            phr_reps[i, 0] = encoded_rep[(token_type == 0) & shaped_phr_mask].max(dim=0)[0]
             # max pool representation of second phrase
-                phr_reps[i, 1] = encoded_rep[(token_type == 1) & (phr_mask == i + 1)].max(dim=0)[0]
-            except:
-                print(lbl)
-                print(phr_mask)
-                print(token_type)
-                assert False
+            phr_reps[i, 1] = encoded_rep[(token_type == 1) & shaped_phr_mask].max(dim=0)[0]
         final_phrases_rep = torch.cat((phr_reps[:, 0], phr_reps[:, 1], torch.abs(phr_reps[:, 0] - phr_reps[:, 1]),
                                        torch.mul(phr_reps[:, 0], phr_reps[:, 1])), dim=1)
         output_logits = self.phrasal_cls(final_phrases_rep)
@@ -535,7 +522,8 @@ def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_ma
 def test_module():
     from vgp.function.config import config, update_config
     from vgp.data.build import make_dataloader
-    cfg_path = os.path.join(root_path, 'cfgs', 'vgp', 'base_4x16G_fp32.yaml')
+    os.chdir("../../")
+    cfg_path = os.path.join('cfgs', 'vgp', 'base_4x16G_fp32.yaml')
     update_config(cfg_path)
     dataloader = make_dataloader(config, dataset=None, mode='train')
     module = ResNetVLBERT(config)

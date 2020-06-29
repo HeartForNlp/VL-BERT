@@ -21,6 +21,7 @@ class BatchCollator(object):
         max_caption2_length = max([len(data[self.data_names.index('caption2')]) for data in batch])
         if self.phrase_cls and 'label' in self.data_names:
             max_label_length = max([len(data[self.data_names.index('label')]) for data in batch])
+            max_n_phrases = max([data[self.data_names.index('caption1')].shape[1] for data in batch]) - 2
 
         for i, ibatch in enumerate(batch):
             out = {}
@@ -32,8 +33,10 @@ class BatchCollator(object):
 
             caption1 = ibatch[self.data_names.index('caption1')]
             caption2 = ibatch[self.data_names.index('caption2')]
-            out['caption1'] = clip_pad_2d(caption1, (max_caption1_length, len(caption1[0])), pad=0)
-            out['caption2'] = clip_pad_2d(caption2, (max_caption2_length, len(caption2[0])), pad=0)
+            dimension_caption1 = 2 + max_n_phrases if self.phrase_cls else len(caption1[0])
+            dimension_caption2 = 2 + max_n_phrases if self.phrase_cls else len(caption2[0])
+            out['caption1'] = clip_pad_2d(caption1, (max_caption1_length, dimension_caption1), pad=0)
+            out['caption2'] = clip_pad_2d(caption2, (max_caption2_length, dimension_caption2), pad=0)
 
             out['im_info'] = ibatch[self.data_names.index('im_info')]
             if 'label' in self.data_names:

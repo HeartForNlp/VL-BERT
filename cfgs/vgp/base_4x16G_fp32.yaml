@@ -1,8 +1,8 @@
 ---
 RNG_SEED: 12345
-OUTPUT_PATH: './output/vl-bert/vgp/Version5/'
+OUTPUT_PATH: './output/vl-bert/vgp/Version5_test/'
 MODULE: ResNetVLBERT
-GPUS: '0,1,2,3,4,5'
+GPUS: '0,1'
 LOG_FREQUENT: 100
 VAL_FREQUENT: 1
 CHECKPOINT_FREQUENT: 1
@@ -31,7 +31,7 @@ DATASET:
   CACHE_MODE: false
   IGNORE_DB_CACHE: true
   PHRASE_CLS: true
-  SMALL: true
+  SMALL: false
   NEGATIVE_SAMPLING: 'hard'
   ALIGN_CAPTION_IMG: true
 

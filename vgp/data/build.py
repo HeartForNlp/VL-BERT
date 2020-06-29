@@ -130,8 +130,9 @@ def make_dataloader(cfg, dataset=None, mode='train', distributed=False, num_repl
 
 
 def test_dataloader():
+    os.chdir("../../")
     from vgp.function.config import config, update_config
-    cfg_path = os.path.join(root_path, 'cfgs', 'vgp', 'base_4x16G_fp32.yaml')
+    cfg_path = os.path.join('cfgs', 'vgp', 'base_4x16G_fp32.yaml')
     update_config(cfg_path)
     dataloader = make_dataloader(config, dataset=None, mode='train')
     for batch in dataloader:
