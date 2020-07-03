@@ -318,7 +318,7 @@ class ResNetVLBERT(Module):
                             "phrase_label_logits": phrase_cls_logits, 
                             "phrase_cls_loss": phrase_cls_loss})
             if phrase_mask.max() > 0:
-                logits = self.get_phrase_cls(hidden_states_text, phrase_mask, text_token_type_ids, lbl=phrase_labels)
+                logits = self.get_phrase_cls(hidden_states_text, phrase_mask, text_token_type_ids)
                 phrase_cls_loss = F.cross_entropy(logits, phrase_labels[phrase_labels > -1], reduction="mean")
                 phrase_cls_logits[(phrase_labels > -1)] = logits
                 outputs.update({"phrase_label_logits": phrase_cls_logits,
@@ -377,8 +377,8 @@ class ResNetVLBERT(Module):
         sentence2_tags = sentence2[:, :, 1]
 
         if self.use_phrasal_paraphrases:
-            phrase1_mask = sentence1[:, :, 2]
-            phrase2_mask = sentence2[:, :, 2]
+            phrase1_mask = sentence1[:, :, 2:]
+            phrase2_mask = sentence2[:, :, 2:]
         else:
             phrase1_mask, phrase2_mask = None, None
 
@@ -438,7 +438,7 @@ class ResNetVLBERT(Module):
 
         return outputs
 
-    def get_phrase_cls(self, encoded_rep, phr_mask, token_type, lbl=None):
+    def get_phrase_cls(self, encoded_rep, phr_mask, token_type):
         n_pairs = phr_mask.max().item()
         phr_reps = encoded_rep.new_zeros((n_pairs, 2, encoded_rep.size(-1)))
         for i in range(n_pairs):

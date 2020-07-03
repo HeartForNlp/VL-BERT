@@ -16,7 +16,7 @@ def parse_args():
     parser.add_argument('--dist', help='whether to use distributed training', default=False, action='store_true')
     parser.add_argument('--slurm', help='whether this is a slurm job', default=False, action='store_true')
     parser.add_argument('--do-test', help='whether to generate csv result on test set',
-                        default=True, action='store_true')
+                        default=False, action='store_true')
     parser.add_argument('--cudnn-off', help='disable cudnn', default=False, action='store_true')
 
     # easy test pretrain model

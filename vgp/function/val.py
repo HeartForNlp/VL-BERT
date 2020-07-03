@@ -22,6 +22,7 @@ def do_validation(net, val_loader, metrics, label_index_in_batch):
             phrase_labels = label[:, :, 1]
             if "phrase_label_logits" in outputs.keys():
                 phrase_labels = phrase_labels[phrase_labels > -1]
-            outputs.update({"phrase_label": phrase_labels})
+            outputs.update({"sentence_label": sentence_label,
+                            "phrase_label": phrase_labels})
         
         metrics.update(outputs)
