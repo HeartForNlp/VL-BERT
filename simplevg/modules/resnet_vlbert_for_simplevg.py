@@ -23,6 +23,7 @@ class ResNetVLBERT(Module):
         self.enable_cnn_reg_loss = config.NETWORK.ENABLE_CNN_REG_LOSS
         self.cnn_loss_top = config.NETWORK.CNN_LOSS_TOP
         self.supervise_attention = config.NETWORK.SUPERVISE_ATTENTION
+        self.normalization = config.NETWORK.ATTENTION_NORM_METHOD
         if not config.NETWORK.BLIND:
             self.image_feature_extractor = FastRCNN(config,
                                                     average_pool=True,
@@ -239,7 +240,8 @@ class ResNetVLBERT(Module):
         attention_loss_2 = 0.
         if self.supervise_attention:
             attention_loss_1, attention_loss_2 = get_attention_supervision_loss(attention_probs, text_tags, text_mask,
-                                                                                box_mask)
+                                                                                box_mask,
+                                                                                normalization=self.normalization)
             outputs.update({"attention_loss_1": attention_loss_1, "attention_loss_2": attention_loss_2})
 
         loss = sentence_cls_loss.mean() + self.config.NETWORK.ATTENTION_LOSS_WEIGHT * attention_loss_1 + \
@@ -325,7 +327,7 @@ class ResNetVLBERT(Module):
         return outputs
 
 
-def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_mask):
+def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_mask, normalization):
     # suffix 1 refers to text-to-roi attention and suffix 2 refers to roi-to-text
     # reformat attention output by transposing batch and layer dimension
     attention_probs = [layer.unsqueeze(0) for layer in attention_probs]
@@ -347,7 +349,7 @@ def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_ma
     n_heads = attention_probs.size(2)
     n_grounded_boxes = torch.tensor([len(torch.unique(text_tags[i][text_tags[i] > 0]))
                                      for i in range(len(text_tags))]).sum()
-    epsilon = 10e-6
+    epsilon = 1e-6
     for i, attention in enumerate(attention_probs):
         if text_tags[i].sum().item() == 0:
             attention_loss_1[i] = 0.
@@ -356,28 +358,34 @@ def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_ma
         else:
             # Handle text-to-roi attention
             pred_attention_1 = attention[:, :, grounded_words[i]][:, :, :, boxes_pos[i]]
-            norm_log_attention_1 = torch.log(epsilon +
-                                             pred_attention_1 / (pred_attention_1.sum(-1, keepdim=True) + epsilon))
+            # Flatten attention tensor with respect to layers and heads
+            pred_attention_1 = pred_attention_1.view((-1, pred_attention_1.size(-1)))
+            if normalization == "linear":
+                norm_log_attention_1 = torch.log(epsilon +
+                                                 pred_attention_1 / (pred_attention_1.sum(-1, keepdim=True) + epsilon))
+            else:
+                norm_log_attention_1 = F.log_softmax(pred_attention_1, dim=-1)
             attention_label_1 = text_tags[i][text_tags[i] > 0]
             # broadcast labels to same shape as attention
             attention_label_1 = attention_label_1.unsqueeze(0).unsqueeze(0).repeat((n_layers, n_heads, 1))
-            # flatten both attention and labels with respect to layers and heads
-            norm_log_attention_1 = norm_log_attention_1.view((-1, pred_attention_1.size(-1)))
+            # flatten labels with respect to layers and heads
             attention_label_1 = attention_label_1.view((-1))
             attention_loss_1[i] = F.nll_loss(norm_log_attention_1, attention_label_1, reduction="sum")
 
             # Handle roi-to-text attention
             grounded_boxes = torch.unique(attention_label_1)
-            pred_attention_2 = attention[:, :, boxes_pos[i]][:, :, grounded_boxes][:, :, :, text_pos[i]]
-            norm_log_attention_2 = torch.log(epsilon +
-                                             pred_attention_2 / (pred_attention_2.sum(-1, keepdim=True) + epsilon))
+            pred_attention_2 = pred_attention_2.view((-1, pred_attention_2.size(-1)))
+            if normalization == "linear":
+                norm_log_attention_2 = torch.log(epsilon +
+                                                 pred_attention_2 / (pred_attention_2.sum(-1, keepdim=True) + epsilon))
+            else:
+                norm_log_attention_2 = F.log_softmax(pred_attention_2, dim=-1)
             attention_label_2 = text_tags[i].new_zeros((len(grounded_boxes), text_mask[i].sum()))
             attention_label_2[text_tags[i][text_mask[i]].unsqueeze(0).repeat(len(grounded_boxes), 1) ==
                               grounded_boxes.unsqueeze(1).repeat(1, text_mask[i].sum())] = 1
             # broadcast labels to same shape as attention
             attention_label_2 = attention_label_2.unsqueeze(0).unsqueeze(0).repeat((n_layers, n_heads, 1, 1))
-            # flatten both attention and labels with respect to layers and heads
-            norm_log_attention_2 = norm_log_attention_2.view((-1, pred_attention_2.size(-1)))
+            # flatten labels with respect to layers and heads
             attention_label_2 = attention_label_2.view((-1, attention_label_2.size(-1)))
             attention_loss_2[i] = F.binary_cross_entropy_with_logits(norm_log_attention_2, attention_label_2.type(torch.float32), reduction="sum") / text_mask[i].sum()
 
@@ -395,7 +403,8 @@ def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_ma
 def test_module():
     from simplevg.function.config import config, update_config
     from simplevg.data.build import make_dataloader
-    cfg_path = os.path.join(root_path, 'cfgs', 'simplevg', 'base_4x16G_fp32.yaml')
+    os.chdir("../../")
+    cfg_path = os.path.join('cfgs', 'simplevg', 'base_4x16G_fp32.yaml')
     update_config(cfg_path)
     dataloader = make_dataloader(config, dataset=None, mode='train')
     module = ResNetVLBERT(config)

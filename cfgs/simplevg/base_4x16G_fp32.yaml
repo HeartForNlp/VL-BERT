@@ -1,6 +1,6 @@
 ---
 RNG_SEED: 12345
-OUTPUT_PATH: './output/vl-bert/simplevg/Version1/'
+OUTPUT_PATH: './output/vl-bert/simplevg/Version2/'
 MODULE: ResNetVLBERT
 GPUS: '0,1,2,3,4,5'
 LOG_FREQUENT: 100
@@ -67,6 +67,7 @@ NETWORK:
   NO_GROUNDING: true
   SUPERVISE_ATTENTION: true
   ATTENTION_LOSS_WEIGHT: 1.0
+  ATTENTION_NORM_METHOD: 'softmax'
 
   VLBERT:
     input_transform_type: 1
