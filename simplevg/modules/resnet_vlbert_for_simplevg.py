@@ -374,6 +374,7 @@ def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_ma
 
             # Handle roi-to-text attention
             grounded_boxes = torch.unique(attention_label_1)
+            pred_attention_2 = attention[:, :, boxes_pos[i]][:, :, grounded_boxes][:, :, :, text_pos[i]]
             pred_attention_2 = pred_attention_2.view((-1, pred_attention_2.size(-1)))
             if normalization == "linear":
                 norm_log_attention_2 = torch.log(epsilon +
