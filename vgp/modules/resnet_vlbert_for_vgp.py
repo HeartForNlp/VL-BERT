@@ -431,7 +431,8 @@ class ResNetVLBERT(Module):
         outputs.update({'sentence_label_logits': sentence_logits})
         
         if self.use_phrasal_paraphrases:
-            outputs.update({"phrase_label_logits": phrase_mask.new_zeros((1, 5))})
+            phrase_cls_logits = sentence_logits.new_zeros((1, 5)) + 100000
+            outputs.update({"phrase_label_logits": phrase_cls_logits})
             if phrase_mask.max() > 0:
                 phrase_cls_logits = self.get_phrase_cls(hidden_states_text, phrase_mask, text_token_type_ids)
                 outputs.update({"phrase_label_logits": phrase_cls_logits})
