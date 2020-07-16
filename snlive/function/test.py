@@ -87,7 +87,6 @@ def test_net(args, config, ckpt_path=None, save_path=None, save_name=None):
 
         # test
         sentence_logits = []
-        test_ids = []
         sentence_labels = []
         cur_id = 0
         model.eval()
@@ -97,20 +96,16 @@ def test_net(args, config, ckpt_path=None, save_path=None, save_name=None):
             sentence_logits.append(output['sentence_label_logits'].float().detach().cpu().numpy())
             batch_size = batch[0].shape[0]
             sentence_labels.append([test_database[cur_id + k]['label'] for k in range(batch_size)])
-            test_ids.append([test_database[cur_id + k]['pair_id'] for k in range(batch_size)])
             cur_id += batch_size
         sentence_logits = np.concatenate(sentence_logits, axis=0)
-        test_ids = np.concatenate(test_ids, axis=0)
         sentence_labels = np.concatenate(sentence_labels, axis=0)
         sentence_prediction = np.argmax(sentence_logits, axis=1).reshape(-1)
 
         # generate final result csv
         dataframe = pd.DataFrame(data=sentence_prediction, columns=["sentence_pred_label"])
-        dataframe['pair_id'] = test_ids
         dataframe['sentence_labels'] = sentence_labels
 
         # Save predictions
-        dataframe = dataframe.set_index('pair_id', drop=True)
         dataframe.to_csv(result_csv_path)
         print('result csv saved to {}.'.format(result_csv_path))
     else:
