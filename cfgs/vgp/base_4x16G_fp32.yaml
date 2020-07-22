@@ -1,6 +1,6 @@
 ---
 RNG_SEED: 12345
-OUTPUT_PATH: './output/vl-bert/vgp/Version5_indirectVG/'
+OUTPUT_PATH: './output/vl-bert/vgp/Version5_debug/'
 MODULE: ResNetVLBERT
 GPUS: '0,1'
 LOG_FREQUENT: 100
@@ -71,10 +71,8 @@ NETWORK:
   PHRASE_LOSS_WEIGHT: 1.0
   CNN_LOSS_TOP: false
   NO_GROUNDING: true
-  SUPERVISE_ATTENTION: false
-  INDIRECT_VG: true
+  SUPERVISE_ATTENTION: "None"
   ATTENTION_LOSS_WEIGHT: 1.0
-  VG_LOSS_WEIGHT: 1.0
 
   VLBERT:
     input_transform_type: 1
@@ -112,10 +110,10 @@ TRAIN:
   FLIP_PROB: 0.5
   BATCH_IMAGES: 2
   ASPECT_GROUPING: false
-  RESUME: true
+  RESUME: false
   AUTO_RESUME: true
-  BEGIN_EPOCH: 2
-  END_EPOCH: 4
+  BEGIN_EPOCH: 0
+  END_EPOCH: 2
   OPTIMIZER: 'SGD'
   CLIP_GRAD_NORM: 10
   GRAD_ACCUMULATE_STEPS: 8

@@ -25,7 +25,6 @@ class ResNetVLBERT(Module):
         self.align_caption_img = config.DATASET.ALIGN_CAPTION_IMG
         self.use_phrasal_paraphrases = config.DATASET.PHRASE_CLS
         self.supervise_attention = config.NETWORK.SUPERVISE_ATTENTION
-        self.indirect_vg = config.NETWORK.INDIRECT_VG
         if not config.NETWORK.BLIND:
             self.image_feature_extractor = FastRCNN(config,
                                                     average_pool=True,
@@ -102,7 +101,7 @@ class ResNetVLBERT(Module):
             else:
                 raise ValueError("Classifier type: {} not supported!".format(config.NETWORK.PHRASE.CLASSIFIER_TYPE))
 
-        if self.indirect_vg:
+        if self.supervise_attention == "indirect":
             if config.NETWORK.VG.CLASSIFIER_TYPE == "2fc":
                 self.vg_cls = torch.nn.Sequential(
                     torch.nn.Dropout(config.NETWORK.VG.CLASSIFIER_DROPOUT, inplace=False),
@@ -289,7 +288,7 @@ class ResNetVLBERT(Module):
         if self.config.NETWORK.NO_OBJ_ATTENTION or self.config.NETWORK.BLIND:
             box_mask.zero_()
 
-        if self.supervise_attention:
+        if self.supervise_attention in ["direct", "semi-direct"]:
             hidden_states_text, hidden_states_objects, pooled_rep, attention_probs = \
                 self.vlbert(text_input_ids,
                             text_token_type_ids,
@@ -299,7 +298,7 @@ class ResNetVLBERT(Module):
                             box_mask,
                             output_all_encoded_layers=False,
                             output_text_and_object_separately=True,
-                            output_attention_probs=self.supervise_attention)
+                            output_attention_probs=True)
         else:
             hidden_states_text, hidden_states_objects, pooled_rep = self.vlbert(text_input_ids,
                                                                                 text_token_type_ids,
@@ -343,24 +342,27 @@ class ResNetVLBERT(Module):
                                 "phrase_cls_loss": phrase_cls_loss})
 
         # Handle attention supervision, suffix 1 refers to text-to-roi attention and suffix 2 refers to roi-to-text
-        attention_loss_1 = 0.
-        attention_loss_2 = 0.
-        if self.supervise_attention:
-            attention_loss_1, attention_loss_2 = get_attention_supervision_loss(attention_probs, text_tags, text_mask,
-                                                                                box_mask)
+        attention_loss = 0.
+        if self.supervise_attention == "direct":
+            attention_loss_1, attention_loss_2 = get_direct_attention_supervision_loss(attention_probs, text_tags,
+                                                                                       text_mask, box_mask)
             outputs.update({"attention_loss_1": attention_loss_1, "attention_loss_2": attention_loss_2})
+            attention_loss = attention_loss_1 + attention_loss_2
 
-        # Indirect attention supervision task, visual grounding
-        indirect_vg_loss = 0.
-        if self.indirect_vg:
-            indirect_vg_loss = self.get_vg_loss(hidden_states_text, hidden_states_objects, text_tags, text_mask,
-                                                box_mask)
-            outputs.update({"vg_loss": indirect_vg_loss})
+        elif self.supervise_attention == "indirect":
+            attention_loss = self.get_indirect_vg_loss(hidden_states_text, hidden_states_objects, text_tags, text_mask,
+                                              box_mask)
+            outputs.update({"vg_loss": attention_loss})
+
+        elif self.supervise_attention == "semi-direct":
+            attention_loss_1, attention_loss_2 = get_semidirect_attention_supervision_loss(attention_probs, text_tags,
+                                                                                           text_mask, box_mask)
+            outputs.update({"attention_loss_1": attention_loss_1, "attention_loss_2": attention_loss_2})
+            attention_loss = attention_loss_1 + attention_loss_2
+            pass
 
         loss = sentence_cls_loss.mean() + self.config.NETWORK.PHRASE_LOSS_WEIGHT * phrase_cls_loss + \
-               self.config.NETWORK.ATTENTION_LOSS_WEIGHT * attention_loss_1 + \
-               self.config.NETWORK.ATTENTION_LOSS_WEIGHT * attention_loss_2 + \
-               indirect_vg_loss * self.config.NETWORK.VG_LOSS_WEIGHT
+               self.config.NETWORK.ATTENTION_LOSS_WEIGHT * attention_loss
 
         return outputs, loss
 
@@ -479,7 +481,7 @@ class ResNetVLBERT(Module):
         output_logits = self.phrasal_cls(final_phrases_rep)
         return output_logits
 
-    def get_vg_loss(self, encoded_text, encoded_objects, text_tags, text_mask, box_mask):
+    def get_indirect_vg_loss(self, encoded_text, encoded_objects, text_tags, text_mask, box_mask):
         if text_tags.max() <= 0:
             return encoded_text.new_zeros((1)).sum()
         else:
@@ -502,7 +504,7 @@ class ResNetVLBERT(Module):
             return vg_loss
 
 
-def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_mask):
+def get_direct_attention_supervision_loss(attention_probs, text_tags, text_mask, box_mask):
     # suffix 1 refers to text-to-roi attention and suffix 2 refers to roi-to-text
     # reformat attention output by transposing batch and layer dimension
     attention_probs = [layer.unsqueeze(0) for layer in attention_probs]
@@ -566,6 +568,79 @@ def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_ma
         attention_loss_2 = attention_loss_2.sum()
         
     return attention_loss_1, attention_loss_2
+
+
+def get_semidirect_attention_supervision_loss(attention_probs, text_tags, text_mask, box_mask):
+    # suffix 1 refers to text-to-roi attention and suffix 2 refers to roi-to-text
+    # reformat attention output by transposing batch and layer dimension
+    attention_probs = [layer.unsqueeze(0) for layer in attention_probs]
+    attention_probs = torch.cat(attention_probs).permute((1, 0, 2, 3, 4))
+    attention_loss_1 = text_tags.new_zeros((len(attention_probs)), device=text_tags.device, dtype=torch.float32)
+    attention_loss_2 = text_tags.new_zeros((len(attention_probs)), device=text_tags.device, dtype=torch.float32)
+    grounded_words = torch.cat(((text_tags > 0),
+                                text_tags.new_zeros((text_tags.size(0),
+                                                     attention_probs[0].size(-1) - text_tags.size(1)),
+                                                    dtype=torch.uint8)), dim=1)
+    boxes_pos = torch.cat((box_mask.new_zeros((box_mask.size(0),
+                                               attention_probs[0].size(-1) - 1 - box_mask.size(1)),
+                                              dtype=torch.uint8), box_mask,
+                           box_mask.new_zeros((box_mask.size(0), 1), dtype=torch.uint8)), dim=1)
+    text_pos = torch.cat((text_mask, text_mask.new_zeros((text_mask.size(0),
+                                                          attention_probs[0].size(-1) - text_mask.size(1)),
+                                                         dtype=torch.uint8)), dim=1)
+    n_layers = attention_probs.size(1)
+    n_heads = attention_probs.size(2)
+    n_grounded_boxes = torch.tensor(
+        [len(torch.unique(text_tags[i][text_tags[i] > 0])) for i in range(len(text_tags))]).sum()
+    epsilon = 10e-6
+    for i, attention in enumerate(attention_probs):
+        if text_tags[i].sum().item() == 0:
+            attention_loss_1[i] = 0.
+            attention_loss_2[i] = 0.
+            continue
+        else:
+            # Handle text-to-roi attention
+            pred_attention_1 = attention[:, :, grounded_words[i]][:, :, :, boxes_pos[i]]
+            norm_log_attention_1 = torch.log(epsilon +
+                                             pred_attention_1 / (pred_attention_1.sum(-1, keepdim=True) + epsilon))
+            attention_label_1 = text_tags[i][text_tags[i] > 0]
+            # broadcast labels to same shape as attention
+            attention_label_1 = attention_label_1.unsqueeze(0).unsqueeze(0).repeat((n_layers, n_heads, 1))
+            # flatten both attention and labels with respect to layers and heads
+            norm_log_attention_1 = norm_log_attention_1.view((-1, pred_attention_1.size(-1)))
+            attention_label_1 = attention_label_1.view((-1))
+            attention_loss_1[i] = F.nll_loss(norm_log_attention_1, attention_label_1, reduction="sum")
+
+            # Handle roi-to-text attention
+            grounded_boxes = torch.unique(attention_label_1)
+            pred_attention_2 = attention[:, :, boxes_pos[i]][:, :, grounded_boxes][:, :, :, text_pos[i]]
+            norm_log_attention_2 = torch.log(epsilon +
+                                             pred_attention_2 / (pred_attention_2.sum(-1, keepdim=True) + epsilon))
+            attention_label_2 = text_tags[i].new_zeros((len(grounded_boxes), text_mask[i].sum()))
+            attention_label_2[text_tags[i][text_mask[i]].unsqueeze(0).repeat(len(grounded_boxes), 1) ==
+                              grounded_boxes.unsqueeze(1).repeat(1, text_mask[i].sum())] = 1
+            # broadcast labels to same shape as attention
+            attention_label_2 = attention_label_2.unsqueeze(0).unsqueeze(0).repeat((n_layers, n_heads, 1, 1))
+            # flatten both attention and labels with respect to layers and heads
+            norm_log_attention_2 = norm_log_attention_2.view((-1, pred_attention_2.size(-1)))
+            attention_label_2 = attention_label_2.view((-1, attention_label_2.size(-1)))
+            attention_loss_2[i] = F.binary_cross_entropy_with_logits(norm_log_attention_2,
+                                                                     attention_label_2.type(torch.float32),
+                                                                     reduction="sum") / text_mask[i].sum()
+
+    # Average loss across all images and all grounded words
+    if grounded_words.sum() != 0:
+        attention_loss_1 = (attention_loss_1.sum() / (grounded_words.sum() * n_layers * n_heads))
+        attention_loss_2 = (attention_loss_2.sum() / (n_grounded_boxes * n_layers * n_heads))
+    else:
+        attention_loss_1 = attention_loss_1.sum()
+        attention_loss_2 = attention_loss_2.sum()
+
+    return attention_loss_1, attention_loss_2
+
+
+def get_attention_rollout(raw_attention):
+    pass
 
 
 def find_phrases(text_tags):
