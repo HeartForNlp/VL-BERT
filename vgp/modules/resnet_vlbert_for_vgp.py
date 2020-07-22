@@ -534,8 +534,7 @@ def get_direct_attention_supervision_loss(attention_probs, text_tags, text_mask,
         else:
             # Handle text-to-roi attention
             pred_attention_1 = attention[:, :, grounded_words[i]][:, :, :, boxes_pos[i]]
-            norm_log_attention_1 = torch.log(epsilon +
-                                             pred_attention_1 / (pred_attention_1.sum(-1, keepdim=True) + epsilon))
+            norm_log_attention_1 = F.log_softmax(pred_attention_1, dim=-1)
             attention_label_1 = text_tags[i][text_tags[i] > 0]
             # broadcast labels to same shape as attention
             attention_label_1 = attention_label_1.unsqueeze(0).unsqueeze(0).repeat((n_layers, n_heads, 1))
@@ -547,8 +546,7 @@ def get_direct_attention_supervision_loss(attention_probs, text_tags, text_mask,
             # Handle roi-to-text attention
             grounded_boxes = torch.unique(attention_label_1)
             pred_attention_2 = attention[:, :, boxes_pos[i]][:, :, grounded_boxes][:, :, :, text_pos[i]]
-            norm_log_attention_2 = torch.log(epsilon +
-                                             pred_attention_2 / (pred_attention_2.sum(-1, keepdim=True) + epsilon))
+            norm_log_attention_2 = F.log_softmax(pred_attention_2, dim=-1)
             attention_label_2 = text_tags[i].new_zeros((len(grounded_boxes), text_mask[i].sum()))
             attention_label_2[text_tags[i][text_mask[i]].unsqueeze(0).repeat(len(grounded_boxes), 1) ==
                               grounded_boxes.unsqueeze(1).repeat(1, text_mask[i].sum())] = 1
@@ -601,8 +599,7 @@ def get_semidirect_attention_supervision_loss(attention_probs, text_tags, text_m
         else:
             # Handle text-to-roi attention
             pred_attention_1 = attention[:, grounded_words[i]][:, :, boxes_pos[i]]
-            norm_log_attention_1 = torch.log(epsilon +
-                                             pred_attention_1 / (pred_attention_1.sum(-1, keepdim=True) + epsilon))
+            norm_log_attention_1 = F.log_softmax(pred_attention_1, dim=-1)
             attention_label_1 = text_tags[i][text_tags[i] > 0]
             # broadcast labels to same shape as attention
             attention_label_1 = attention_label_1.unsqueeze(0).repeat((n_layers, 1))
@@ -614,8 +611,7 @@ def get_semidirect_attention_supervision_loss(attention_probs, text_tags, text_m
             # Handle roi-to-text attention
             grounded_boxes = torch.unique(attention_label_1)
             pred_attention_2 = attention[:, boxes_pos[i]][:, :, grounded_boxes][:, :, text_pos[i]]
-            norm_log_attention_2 = torch.log(epsilon +
-                                             pred_attention_2 / (pred_attention_2.sum(-1, keepdim=True) + epsilon))
+            norm_log_attention_2 = F.log_softmax(pred_attention_2, dim=-1)
             attention_label_2 = text_tags[i].new_zeros((len(grounded_boxes), text_mask[i].sum()))
             attention_label_2[text_tags[i][text_mask[i]].unsqueeze(0).repeat(len(grounded_boxes), 1) ==
                               grounded_boxes.unsqueeze(1).repeat(1, text_mask[i].sum())] = 1
