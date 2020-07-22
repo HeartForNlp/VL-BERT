@@ -1,8 +1,8 @@
 ---
 RNG_SEED: 12345
-OUTPUT_PATH: './output/vl-bert/refcoco+'
+OUTPUT_PATH: './output/vl-bert/refcoco+/Version5/'
 MODULE: ResNetVLBERT
-GPUS: '0,1,2,3'
+GPUS: '0,1'
 LOG_FREQUENT: 100
 VAL_FREQUENT: 1
 CHECKPOINT_FREQUENT: 1
@@ -31,7 +31,7 @@ DATASET:
 
 
 NETWORK:
-  PARTIAL_PRETRAIN: "./model/pretrained_model/vl-bert-base-e2e.model"
+  PARTIAL_PRETRAIN: "./output/vl-bert/vgp/Version5/base_4x16G_fp32/flickr30k-images_train/vl-bert_base_a_res101-best.model"
   PARTIAL_PRETRAIN_PREFIX_CHANGES:
   - "vlbert.mvrc_head.transform->final_mlp.0"
   - "module.vlbert.mvrc_head.transform->module.final_mlp.0"
@@ -87,7 +87,7 @@ NETWORK:
 TRAIN:
   SHUFFLE: true
   FLIP_PROB: 0.5
-  BATCH_IMAGES: 4
+  BATCH_IMAGES: 2
   ASPECT_GROUPING: true
   RESUME: false
   AUTO_RESUME: true
@@ -95,7 +95,7 @@ TRAIN:
   END_EPOCH: 20
   OPTIMIZER: 'AdamW'
   CLIP_GRAD_NORM: 1.0
-  GRAD_ACCUMULATE_STEPS: 2
+  GRAD_ACCUMULATE_STEPS: 4
   LR: 8.00e-7
   LR_SCHEDULE: 'triangle'
   WD: 0.0001
@@ -109,10 +109,10 @@ TRAIN:
 VAL:
   SHUFFLE: false
   FLIP_PROB: 0
-  BATCH_IMAGES: 4
+  BATCH_IMAGES: 2
 
 TEST:
   SHUFFLE: false
   FLIP_PROB: 0
   TEST_EPOCH: 0
-  BATCH_IMAGES: 4
+  BATCH_IMAGES: 2

@@ -258,6 +258,10 @@ def train_net(args, config):
         train_metrics_list.append(
             vgp_metrics.LossLogger("attention_loss_2", display_name="attention_loss_roi-text", allreduce=args.dist,
                                    num_replicas=world_size if args.dist else 1))
+    if config.NETWORK.INDIRECT_VG:
+        train_metrics_list.append(
+            vgp_metrics.LossLogger("vg_loss", display_name="VG_loss", allreduce=args.dist,
+                                   num_replicas=world_size if args.dist else 1))
 
     train_metrics = CompositeEvalMetric()
     val_metrics = CompositeEvalMetric()

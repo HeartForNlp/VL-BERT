@@ -25,6 +25,7 @@ class ResNetVLBERT(Module):
         self.align_caption_img = config.DATASET.ALIGN_CAPTION_IMG
         self.use_phrasal_paraphrases = config.DATASET.PHRASE_CLS
         self.supervise_attention = config.NETWORK.SUPERVISE_ATTENTION
+        self.indirect_vg = config.NETWORK.INDIRECT_VG
         if not config.NETWORK.BLIND:
             self.image_feature_extractor = FastRCNN(config,
                                                     average_pool=True,
@@ -97,6 +98,23 @@ class ResNetVLBERT(Module):
                 self.phrasal_cls = torch.nn.Sequential(
                     torch.nn.Dropout(config.NETWORK.PHRASE.CLASSIFIER_DROPOUT, inplace=False),
                     torch.nn.Linear(4*dim, 5)
+                )
+            else:
+                raise ValueError("Classifier type: {} not supported!".format(config.NETWORK.PHRASE.CLASSIFIER_TYPE))
+
+        if self.indirect_vg:
+            if config.NETWORK.VG.CLASSIFIER_TYPE == "2fc":
+                self.vg_cls = torch.nn.Sequential(
+                    torch.nn.Dropout(config.NETWORK.VG.CLASSIFIER_DROPOUT, inplace=False),
+                    torch.nn.Linear(2*dim, config.NETWORK.VG.CLASSIFIER_HIDDEN_SIZE),
+                    torch.nn.ReLU(inplace=True),
+                    torch.nn.Dropout(config.NETWORK.VG.CLASSIFIER_DROPOUT, inplace=False),
+                    torch.nn.Linear(config.NETWORK.VG.CLASSIFIER_HIDDEN_SIZE, 1),
+                )
+            elif config.NETWORK.VG.CLASSIFIER_TYPE == "1fc":
+                self.vg_cls = torch.nn.Sequential(
+                    torch.nn.Dropout(config.NETWORK.VG.CLASSIFIER_DROPOUT, inplace=False),
+                    torch.nn.Linear(2*dim, 1)
                 )
             else:
                 raise ValueError("Classifier type: {} not supported!".format(config.NETWORK.PHRASE.CLASSIFIER_TYPE))
@@ -332,9 +350,17 @@ class ResNetVLBERT(Module):
                                                                                 box_mask)
             outputs.update({"attention_loss_1": attention_loss_1, "attention_loss_2": attention_loss_2})
 
+        # Indirect attention supervision task, visual grounding
+        indirect_vg_loss = 0.
+        if self.indirect_vg:
+            indirect_vg_loss = self.get_vg_loss(hidden_states_text, hidden_states_objects, text_tags, text_mask,
+                                                box_mask)
+            outputs.update({"vg_loss": indirect_vg_loss})
+
         loss = sentence_cls_loss.mean() + self.config.NETWORK.PHRASE_LOSS_WEIGHT * phrase_cls_loss + \
                self.config.NETWORK.ATTENTION_LOSS_WEIGHT * attention_loss_1 + \
-               self.config.NETWORK.ATTENTION_LOSS_WEIGHT * attention_loss_2
+               self.config.NETWORK.ATTENTION_LOSS_WEIGHT * attention_loss_2 + \
+               indirect_vg_loss * self.config.NETWORK.VG_LOSS_WEIGHT
 
         return outputs, loss
 
@@ -453,6 +479,28 @@ class ResNetVLBERT(Module):
         output_logits = self.phrasal_cls(final_phrases_rep)
         return output_logits
 
+    def get_vg_loss(self, encoded_text, encoded_objects, text_tags, text_mask, box_mask):
+        if text_tags.max() <= 0:
+            return encoded_text.new_zeros((1)).sum()
+        else:
+            vg_inputs = []
+            vg_labels = []
+            indexes = find_phrases(text_tags)
+            for i, k, length, tag in indexes:
+                phrases_rep = encoded_text[i, k:k + length].max(dim=0)[
+                    0]  # max pool encoding of the words in the phrase
+                objects_reps = encoded_objects[i][box_mask[i]][1:]
+                vg_inputs.append(
+                    torch.cat((phrases_rep.unsqueeze(0).repeat(len(objects_reps), 1), objects_reps), dim=1))
+                vg_lbl = text_tags.new_zeros((len(objects_reps)))
+                vg_lbl[tag - 1] = 1
+                vg_labels.append(vg_lbl)
+            vg_inputs = torch.cat(vg_inputs, dim=0)
+            vg_labels = torch.cat(vg_labels, dim=0)
+            vg_logits = self.vg_cls(vg_inputs).view(-1)
+            vg_loss = F.binary_cross_entropy_with_logits(vg_logits, vg_labels.float())
+            return vg_loss
+
 
 def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_mask):
     # suffix 1 refers to text-to-roi attention and suffix 2 refers to roi-to-text
@@ -518,6 +566,28 @@ def get_attention_supervision_loss(attention_probs, text_tags, text_mask, box_ma
         attention_loss_2 = attention_loss_2.sum()
         
     return attention_loss_1, attention_loss_2
+
+
+def find_phrases(text_tags):
+    res = []
+    length = 0
+    value = None
+    for i, caption in enumerate(text_tags):
+        tags = caption.view(-1)
+        for k, tag in enumerate(tags):
+            if tag > 0:
+                if value is None or tag == value:
+                    length += 1
+                else:
+                    res.append((i, k, length, value))
+                    length = 1
+                value = tag
+            else:
+                if length > 0:
+                    res.append((i, k, length, value))
+                    length = 0
+                    value = None
+    return res
 
 
 def test_module():
