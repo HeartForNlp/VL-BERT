@@ -1,8 +1,8 @@
 ---
 RNG_SEED: 12345
-OUTPUT_PATH: './output/pretrain/vl-bert'
+OUTPUT_PATH: './output/pretrain/vl-bert/get_gradients'
 MODULE: ResNetVLBERTForPretrainingMultitask
-GPUS: '0,1,2,3'
+GPUS: '0,1'
 LOG_FREQUENT: 100
 VAL_FREQUENT: 1
 CHECKPOINT_FREQUENT: 1
@@ -11,6 +11,7 @@ NUM_WORKERS_PER_GPU: 4
 SCALES:
 - 600
 - 1000
+EWC_STATS_PATH: './output/'
 
 DATASET:
 
@@ -109,7 +110,7 @@ TRAIN:
   WARMUP_METHOD: 'linear'
   WARMUP_FACTOR: 0.0
   WARMUP_STEPS: 16000
-  FP16: true
+  FP16: false
   FP16_LOSS_SCALE: 'dynamic'
   LOSS_LOGGERS:
   - "mlm_loss_wvc,MLMLossWVC"

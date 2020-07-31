@@ -1,6 +1,6 @@
 ---
 RNG_SEED: 12345
-OUTPUT_PATH: './output/vl-bert/vgp/Version5_debug/'
+OUTPUT_PATH: './output/vl-bert/phrasalVGP/directsuperv/'
 MODULE: ResNetVLBERT
 GPUS: '0,1'
 LOG_FREQUENT: 100
@@ -71,8 +71,11 @@ NETWORK:
   PHRASE_LOSS_WEIGHT: 1.0
   CNN_LOSS_TOP: false
   NO_GROUNDING: true
-  SUPERVISE_ATTENTION: "None"
+  SUPERVISE_ATTENTION: "direct"
   ATTENTION_LOSS_WEIGHT: 1.0
+  EWC_REG: false
+  FISHER_PATH: ''
+  PREVIOUS_OPT_PARAM_PATH: ''
 
   VLBERT:
     input_transform_type: 1

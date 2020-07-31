@@ -17,6 +17,7 @@ _C.CHECKPOINT_FREQUENT = 1
 _C.MODEL_PREFIX = ''
 _C.NUM_WORKERS_PER_GPU = 4
 _C.SCALES = ()
+_C.EWC_STATS_PATH = ''
 
 # ------------------------------------------------------------------------------------- #
 # Common dataset options
