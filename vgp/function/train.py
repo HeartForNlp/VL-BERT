@@ -251,7 +251,7 @@ def train_net(args, config):
         train_metrics_list.append(
             vgp_metrics.LossLogger(output_name, display_name=display_name, allreduce=args.dist,
                                    num_replicas=world_size if args.dist else 1))
-    if config.NETWORK.SUPERVISE_ATTENTION == "direct":
+    if config.NETWORK.SUPERVISE_ATTENTION in ["direct", "semi-direct"]:
         train_metrics_list.append(
             vgp_metrics.LossLogger("attention_loss_1", display_name="attention_loss_txt-roi", allreduce=args.dist,
                                    num_replicas=world_size if args.dist else 1))
