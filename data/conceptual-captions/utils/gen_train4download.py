@@ -10,7 +10,7 @@ with open('Train_GCC-training.tsv') as fp:
         captions.append(s[0].split(' '))
         urls.append(s[1][:-1])
 np.random.seed(42)
-urls = list(np.random.choice(urls, int(0.1*len(urls)), replace=False))
+urls = list(np.random.choice(urls, int(0.01*len(urls)), replace=False))
         
 with open('train4download.txt', 'w') as fp:
     for cnt, url in enumerate(urls):

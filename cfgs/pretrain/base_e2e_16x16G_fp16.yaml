@@ -36,7 +36,7 @@ DATASET:
   MIN_SEQ_LEN: 64
 
 NETWORK:
-  PARTIAL_PRETRAIN: ""
+  PARTIAL_PRETRAIN: "./model/pretrained_model/vl-bert-base-e2e.model"
   PARTIAL_PRETRAIN_PREFIX_CHANGES: []
   IMAGE_NUM_LAYERS: 101
   IMAGE_C5_DILATED: true

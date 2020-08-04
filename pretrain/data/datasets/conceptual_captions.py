@@ -79,11 +79,18 @@ class ConceptualCaptionsDataset(Dataset):
         self.zipreader = ZipReader()
 
         self.database = list(jsonlines.open(self.ann_file))
+        import numpy as np
+        self.database = list(np.random.choice(self.database, int(0.01 * len(self.database)), replace=False))
+        exclude = []
         if not self.zip_mode:
             for i, idb in enumerate(self.database):
                 self.database[i]['frcnn'] = idb['frcnn'].replace('.zip@', '')\
                     .replace('.0', '').replace('.1', '').replace('.2', '').replace('.3', '')
                 self.database[i]['image'] = idb['image'].replace('.zip@', '')
+                if os.path.split(self.database[i]['frcnn'])[1] not in os.listdir(os.path.join(self.data_path,
+                                                                                              "train_frcnn")):
+                    exclude.append(i)
+            self.database = list(np.delete(self.database, exclude))
 
         if self.aspect_grouping:
             assert False, "not support aspect grouping currently!"
