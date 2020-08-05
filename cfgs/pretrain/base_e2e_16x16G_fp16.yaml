@@ -94,8 +94,8 @@ TRAIN:
   SHUFFLE: true
   FLIP_PROB: 0.5
   BATCH_IMAGES:
-  - 8
-  - 8
+  - 2
+  - 2
   ASPECT_GROUPING: false
   RESUME: false
   AUTO_RESUME: true

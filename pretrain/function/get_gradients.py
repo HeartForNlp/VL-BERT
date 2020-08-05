@@ -302,5 +302,4 @@ def train_net(args, config):
 
     with open(os.path.join(config.EWC_STATS_PATH, "fisher"), "wb") as fisher_file:
         pickle.dump(fisher, fisher_file)
-    with open(os.path.join(config.EWC_STATS_PATH, "params_pretrain"), "wb") as params_file:
-        pickle.dump(model.named_parameters(), params_file)
+    torch.save(model.state_dict(), os.path.join(config.EWC_STATS_PATH, "opt_params"))

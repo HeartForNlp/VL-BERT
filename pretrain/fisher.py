@@ -5,6 +5,7 @@ import torch
 import subprocess
 
 from pretrain.function.config import config, update_config
+from pretrain.function.train import train_net
 from pretrain.function.get_gradients import train_net as gradi
 
 
@@ -15,10 +16,10 @@ def parse_args():
     parser.add_argument('--log-dir', type=str, help='tensorboard log dir')
     parser.add_argument('--dist', help='whether to use distributed training', default=False, action='store_true')
     parser.add_argument('--slurm', help='whether this is a slurm job', default=False, action='store_true')
+    parser.add_argument('--do-test', help='whether to generate csv result on test set',
+                        default=False, action='store_true')
     parser.add_argument('--cudnn-off', help='disable cudnn', default=False, action='store_true')
-#    os.chdir('../')
     args = parser.parse_args()
-#    args.cfg = './cfgs/pretrain/base_e2e_16x16G_fp16.yaml'
 
     if args.cfg is not None:
         update_config(args.cfg)
@@ -43,10 +44,8 @@ def parse_args():
 
 def main():
     args, config = parse_args()
-    rank, model = gradi(args, config)
+    gradi(args, config)
 
 
 if __name__ == '__main__':
     main()
-
-

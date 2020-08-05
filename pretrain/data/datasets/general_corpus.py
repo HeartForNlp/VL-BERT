@@ -30,14 +30,9 @@ class GeneralCorpus(Dataset):
             with open(ann_file, 'r', encoding=self.encoding) as f:
                 corpus.extend([l.strip('\n').strip('\r').strip('\n') for l in f.readlines()])
 
-        # sple = np.random.choice(len(corpus), int(0.005 * len(corpus)), replace=False)
-        # corpus = list(np.array(corpus)(sple))
+        corpus = random.sample(corpus, int(0.005 * len(corpus)))
 
         corpus = [l.strip() for l in corpus if l.strip() != '']
-
-        # Add subsampling of 1% of the data set
-        #rng = np.random.default_rng()
-        #corpus = list(rng.choice(corpus, int(0.005*len(corpus)), replace=False))
 
         return corpus
 
