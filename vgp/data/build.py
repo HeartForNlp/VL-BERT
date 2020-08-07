@@ -111,8 +111,7 @@ def make_dataloader(cfg, dataset=None, mode='train', distributed=False, num_repl
                                 transform=transform, test_mode=(mode == 'test'), zip_mode=cfg.DATASET.ZIP_MODE,
                                 cache_mode=cfg.DATASET.CACHE_MODE, ignore_db_cache=cfg.DATASET.IGNORE_DB_CACHE,
                                 pretrained_model_name=cfg.NETWORK.BERT_MODEL_NAME,
-                                add_image_as_a_box=cfg.DATASET.ADD_IMAGE_AS_A_BOX,
-                                **kwargs)
+                                add_image_as_a_box=cfg.DATASET.ADD_IMAGE_AS_A_BOX, on_memory=cfg.ON_MEMORY, **kwargs)
 
     sampler = make_data_sampler(dataset, shuffle, distributed, num_replicas, rank)
     batch_sampler = make_batch_data_sampler(dataset, sampler, False, batch_size)

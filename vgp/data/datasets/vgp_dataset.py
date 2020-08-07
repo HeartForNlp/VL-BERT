@@ -6,6 +6,7 @@ from copy import deepcopy
 import numpy as np
 import pandas as pd
 import xml.etree.ElementTree as ET
+import io
 
 import sys
 root_path = os.path.abspath(os.getcwd())
@@ -27,7 +28,7 @@ class VGPDataset(Dataset):
     def __init__(self, captions_set, ann_file, roi_set, image_set, root_path, data_path, small_version=False,
                  negative_sampling='hard', phrase_cls=True, transform=None, test_mode=False, zip_mode=False,
                  cache_mode=False, cache_db=False, ignore_db_cache=True, basic_tokenizer=None, tokenizer=None,
-                 pretrained_model_name=None, add_image_as_a_box=True, **kwargs):
+                 pretrained_model_name=None, add_image_as_a_box=True, on_memory=False, **kwargs):
         """
         Visual Grounded Paraphrase Dataset
 
@@ -64,6 +65,7 @@ class VGPDataset(Dataset):
         self.ignore_db_cache = ignore_db_cache
         self.cache_dir = os.path.join(root_path, 'cache')
         self.add_image_as_a_box = add_image_as_a_box
+        self.on_memory = on_memory
         if not os.path.exists(self.cache_dir):
             makedirsExist(self.cache_dir)
         self.basic_tokenizer = basic_tokenizer if basic_tokenizer is not None \
@@ -79,7 +81,6 @@ class VGPDataset(Dataset):
 
         if zip_mode:
             self.zipreader = ZipReader()
-        self.bad_stuff = []
 
         self.database = self.load_captions(self.captions_set)
 
@@ -146,14 +147,9 @@ class VGPDataset(Dataset):
                             db_i["phrases_1"], db_i["phrases_2"], \
                             db_i["phrase_labels"] = get_clean_phrases(phrases_df, img_id, list_captions[i],
                                                                       list_captions[j])
-                            for x in range(len(db_i["phrases_1"])):
-                                for y in range(len(db_i["phrases_1"])):
-                                    if x != y and db_i["phrases_1"][x] in db_i["phrases_1"][y]:
-                                        self.bad_stuff.append(img_id)
-                            for x in range(len(db_i["phrases_2"])):
-                                for y in range(len(db_i["phrases_2"])):
-                                    if x != y and db_i["phrases_2"][x] in db_i["phrases_2"][y]:
-                                        self.bad_stuff.append(img_id)
+                        if self.on_memory:
+                            #db_i["image"] = open(os.path.join(self.image_set, img_id + ".jpg"), "rb")
+                            db_i["image"] = Image.open(os.path.join(self.image_set, img_id + ".jpg"))
 
                         database.append(db_i)
 
@@ -200,6 +196,10 @@ class VGPDataset(Dataset):
                             else:
                                 db_i['caption1'] = caption
                                 db_i['caption2'] = wrong_caption
+
+                            if self.on_memory:
+                                # db_i["image"] = open(os.path.join(self.image_set, img_id + ".jpg"), "rb")
+                                db_i["image"] = Image.open(os.path.join(self.image_set, img_id + ".jpg"))
                             database.append(db_i)
             else:
                 continue
@@ -222,7 +222,10 @@ class VGPDataset(Dataset):
 
         # Load image and regions of interest
         img_id = idb['img_id']
-        image = self._load_image(img_id)
+        if self.on_memory:
+            image = idb["image"]
+        else:
+            image = self._load_image(img_id)
         boxes = self._load_roi(img_id)
         w0, h0 = image.size
 
@@ -473,7 +476,6 @@ def test_vgp():
                          small_version=True, phrase_cls=True, negative_sampling='hard', root_path=root_path,
                          data_path=data_path)
     print(dataset.__getitem__(29300))
-    print(len(dataset.bad_stuff))
     
 
 if __name__ == "__main__":

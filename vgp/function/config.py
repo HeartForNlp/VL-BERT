@@ -16,6 +16,7 @@ _C.VAL_FREQUENT = 1
 _C.CHECKPOINT_FREQUENT = 1
 _C.MODEL_PREFIX = ''
 _C.NUM_WORKERS_PER_GPU = 4
+_C.ON_MEMORY = False
 _C.SCALES = ()
 
 # ------------------------------------------------------------------------------------- #
