@@ -1,8 +1,8 @@
 ---
 RNG_SEED: 12345
-OUTPUT_PATH: './output/vl-bert/snlive/baseline/'
+OUTPUT_PATH: './output/vl-bert/snlive/phrasalVGP/noattsuperv/'
 MODULE: ResNetVLBERT
-GPUS: '0,1'
+GPUS: '0,1,2,3,4,5'
 LOG_FREQUENT: 100
 VAL_FREQUENT: 1
 CHECKPOINT_FREQUENT: 1
@@ -26,7 +26,7 @@ DATASET:
   ADD_IMAGE_AS_A_BOX: true
 
 NETWORK:
-  PARTIAL_PRETRAIN: "./model"
+  PARTIAL_PRETRAIN: "./output/vl-bert/phrasalVGP/noattsuperv/base_4x16G_fp32/flickr30k-images_train/vl-bert_base_a_res101-best.model"
   PARTIAL_PRETRAIN_PREFIX_CHANGES:
   - "vlbert.mvrc_head.transform->cnn_loss_reg.0"
   - "module.vlbert.mvrc_head.transform->module.cnn_loss_reg.0"
@@ -90,9 +90,8 @@ TRAIN:
   ASPECT_GROUPING: false
   RESUME: true
   AUTO_RESUME: true
-  BEGIN_EPOCH: 5
-
-  END_EPOCH: 10
+  BEGIN_EPOCH: 11
+  END_EPOCH: 12
   OPTIMIZER: 'SGD'
   CLIP_GRAD_NORM: 10
   GRAD_ACCUMULATE_STEPS: 8

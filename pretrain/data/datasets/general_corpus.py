@@ -2,7 +2,7 @@ import random
 from torch.utils.data import Dataset
 from external.pytorch_pretrained_bert import BertTokenizer
 import logging
-import numpy as np
+import random
 
 
 class GeneralCorpus(Dataset):

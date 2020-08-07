@@ -168,7 +168,6 @@ def train_net(args, config):
         writer = SummaryWriter(log_dir=args.log_dir) if args.log_dir is not None else None
 
         # model
-        print("Start parallel model")
         if num_gpus > 1:
             model = torch.nn.DataParallel(model, device_ids=[int(d) for d in config.GPUS.split(',')]).cuda()
         else:
@@ -176,7 +175,6 @@ def train_net(args, config):
             model.cuda()
 
         # loader
-        print("Start loading data")
         if isinstance(config.DATASET, list):
             train_loaders = make_dataloaders(config, mode='train', distributed=False)
             train_loader = MultiTaskDataLoader(train_loaders)
@@ -226,8 +224,6 @@ def train_net(args, config):
 
     # init end time
     end_time = time.time()
-    print("##################################################################################################")
-    print("ca va commencer")
 
     # Parameter to pass to batch_end_callback
     BatchEndParam = namedtuple('BatchEndParams',
@@ -262,7 +258,6 @@ def train_net(args, config):
         fisher[n] = p.new_zeros(p.size())
         p.requires_grad = True
         p.retain_grad()
-        print("done")
 
     # training
     for nbatch, batch in enumerate(train_loader):
@@ -291,15 +286,14 @@ def train_net(args, config):
         backward_time = time.time() - backward_time
 
         for n, p in model.named_parameters():
-            fisher[n] += p.grad.data**2 / len(train_loader)
-
+            assert p.grad is not None, print(batch)
+            fisher[n] += p.grad**2 / len(train_loader)
         batch_end_params = BatchEndParam(epoch=0, nbatch=nbatch, add_step=True, rank=rank,
                                          data_in_time=data_in_time, data_transfer_time=data_transfer_time,
                                          forward_time=forward_time, backward_time=backward_time,
                                          optimizer_time=0., metric_time=0.,
                                          eval_metric=None, locals=locals())
         _multiple_callbacks(batch_end_callbacks, batch_end_params)
-
     with open(os.path.join(config.EWC_STATS_PATH, "fisher"), "wb") as fisher_file:
         pickle.dump(fisher, fisher_file)
-    torch.save(model.state_dict(), os.path.join(config.EWC_STATS_PATH, "opt_params"))
+    torch.save(model.state_dict(), os.path.join(config.EWC_STATS_PATH, "params_pretrain"))

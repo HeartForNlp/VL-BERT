@@ -79,6 +79,7 @@ class ConceptualCaptionsDataset(Dataset):
         self.zipreader = ZipReader()
 
         self.database = list(jsonlines.open(self.ann_file))
+
         exclude = []
         if not self.zip_mode:
             for i, idb in enumerate(self.database):
