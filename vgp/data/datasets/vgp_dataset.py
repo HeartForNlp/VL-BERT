@@ -149,7 +149,9 @@ class VGPDataset(Dataset):
                                                                       list_captions[j])
                         if self.on_memory:
                             #db_i["image"] = open(os.path.join(self.image_set, img_id + ".jpg"), "rb")
-                            db_i["image"] = Image.open(os.path.join(self.image_set, img_id + ".jpg"))
+                            image = Image.open(os.path.join(self.image_set, img_id + ".jpg"))
+                            db_i["image"] = image.copy()
+                            image.close()
 
                         database.append(db_i)
 
@@ -199,7 +201,9 @@ class VGPDataset(Dataset):
 
                             if self.on_memory:
                                 # db_i["image"] = open(os.path.join(self.image_set, img_id + ".jpg"), "rb")
-                                db_i["image"] = Image.open(os.path.join(self.image_set, img_id + ".jpg"))
+                                image = Image.open(os.path.join(self.image_set, img_id + ".jpg"))
+                                db_i["image"] = image.copy()
+                                image.close()
                             database.append(db_i)
             else:
                 continue
