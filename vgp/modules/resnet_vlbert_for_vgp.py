@@ -30,7 +30,7 @@ class ResNetVLBERT(Module):
         self.importance_hparam = 0.
         if config.NETWORK.EWC_REG:
             self.fisher = pickle.load(open(config.NETWORK.FISHER_PATH, "rb"))
-            self.prev_opt_param = pickle.load(open(config.NETWORK.PREVIOUS_OPT_PARAM_PATH, "rb"))
+            self.pretrain_param = torch.load(config.NETWORK.PARAM_PRETRAIN)
             self.importance_hparam = config.NETWORK.EWC_IMPORTANCE
         if not config.NETWORK.BLIND:
             self.image_feature_extractor = FastRCNN(config,
@@ -366,9 +366,12 @@ class ResNetVLBERT(Module):
         # EWC regularization loss against catastrophic forgetting
         ewc_loss = 0.
         if self.ewc_reg:
-            model_params = self.named_parameters()
-            for n, p in self.prev_opt_param:
-                ewc_loss += self.fisher[n]*(p - model_params[n])**2
+            for n, p in self.named_parameters():
+                name = "module." + n
+                if name in self.fisher.keys():
+                    ewc_loss += (self.fisher[name].to(p.device) *
+                                 (p - self.pretrain_param[name].to(p.device))**2).sum()
+            outputs.update({"ewc_loss": ewc_loss})
 
         loss = sentence_cls_loss.mean() + self.config.NETWORK.PHRASE_LOSS_WEIGHT * phrase_cls_loss + \
                self.config.NETWORK.ATTENTION_LOSS_WEIGHT * attention_loss + self.importance_hparam * ewc_loss

@@ -1,6 +1,6 @@
 ---
 RNG_SEED: 12345
-OUTPUT_PATH: './output/vl-bert/phrasalVGP/directsuperv/'
+OUTPUT_PATH: './output/vl-bert/debug_ewc/'
 MODULE: ResNetVLBERT
 GPUS: '0,1'
 LOG_FREQUENT: 100
@@ -30,8 +30,8 @@ DATASET:
   ZIP_MODE: false
   CACHE_MODE: false
   IGNORE_DB_CACHE: true
-  PHRASE_CLS: true
-  SMALL: false
+  PHRASE_CLS: false
+  SMALL: true
   NEGATIVE_SAMPLING: 'hard'
   ALIGN_CAPTION_IMG: true
 
@@ -73,9 +73,10 @@ NETWORK:
   NO_GROUNDING: true
   SUPERVISE_ATTENTION: "direct"
   ATTENTION_LOSS_WEIGHT: 1.0
-  EWC_REG: false
-  FISHER_PATH: ''
-  PREVIOUS_OPT_PARAM_PATH: ''
+  EWC_REG: true
+  FISHER_PATH: './output/fisher'
+  PARAM_PRETRAIN: './output/params_pretrain'
+  EWC_IMPORTANCE: 0.01
 
   VLBERT:
     input_transform_type: 1

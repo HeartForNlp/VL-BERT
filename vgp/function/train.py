@@ -246,6 +246,10 @@ def train_net(args, config):
             vgp_metrics.LossLogger(output_name="phrase_cls_loss", display_name="phrase_cls_loss", allreduce=args.dist,
                                    num_replicas=world_size if args.dist else 1))
         early_stopping_metric = "phraseAcc"
+    if config.NETWORK.EWC_REG:
+        train_metrics_list.append(
+            vgp_metrics.LossLogger(output_name="ewc_loss", display_name="ewc_loss", allreduce=args.dist,
+                                   num_replicas=world_size if args.dist else 1))
         
     for output_name, display_name in config.TRAIN.LOSS_LOGGERS:
         train_metrics_list.append(
