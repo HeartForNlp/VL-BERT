@@ -1,6 +1,6 @@
 ---
 RNG_SEED: 12345
-OUTPUT_PATH: './output/vl-bert/debug_ewc/'
+OUTPUT_PATH: './output/vl-bert/phrasalVGP/semidirect/'
 MODULE: ResNetVLBERT
 GPUS: '0,1'
 LOG_FREQUENT: 100
@@ -8,7 +8,7 @@ VAL_FREQUENT: 1
 CHECKPOINT_FREQUENT: 1
 MODEL_PREFIX: 'vl-bert_base_a_res101'
 NUM_WORKERS_PER_GPU: 4
-ON_MEMORY: true
+ON_MEMORY: false
 SCALES:
 - 600
 - 1000
@@ -72,12 +72,13 @@ NETWORK:
   PHRASE_LOSS_WEIGHT: 1.0
   CNN_LOSS_TOP: false
   NO_GROUNDING: true
-  SUPERVISE_ATTENTION: "direct"
+  SUPERVISE_ATTENTION: "semi-direct"
   ATTENTION_LOSS_WEIGHT: 1.0
-  EWC_REG: true
+  ATTENTION_NORM_METHOD: "linear"
+  EWC_REG: false
   FISHER_PATH: './output/fisher'
   PARAM_PRETRAIN: './output/params_pretrain'
-  EWC_IMPORTANCE: 0.01
+  EWC_IMPORTANCE: 0.
 
   VLBERT:
     input_transform_type: 1
@@ -118,7 +119,7 @@ TRAIN:
   RESUME: false
   AUTO_RESUME: true
   BEGIN_EPOCH: 0
-  END_EPOCH: 2
+  END_EPOCH: 8
   OPTIMIZER: 'SGD'
   CLIP_GRAD_NORM: 10
   GRAD_ACCUMULATE_STEPS: 8

@@ -26,6 +26,7 @@ class ResNetVLBERT(Module):
         self.align_caption_img = config.DATASET.ALIGN_CAPTION_IMG
         self.use_phrasal_paraphrases = config.DATASET.PHRASE_CLS
         self.supervise_attention = config.NETWORK.SUPERVISE_ATTENTION
+        self.normalization = config.NETWORK.ATTENTION_NORM_METHOD
         self.ewc_reg = config.NETWORK.EWC_REG
         self.importance_hparam = 0.
         if config.NETWORK.EWC_REG:
@@ -351,10 +352,11 @@ class ResNetVLBERT(Module):
 
         # Handle attention supervision, suffix 1 refers to text-to-roi attention and suffix 2 refers to roi-to-text
         attention_loss = 0.
-        if self.supervise_attention in["direct", "semi-direct"]:
+        if self.supervise_attention in ["direct", "semi-direct"]:
             use_raw = self.supervise_attention == "direct"
             attention_loss_1, attention_loss_2 = get_attention_supervision_loss(attention_probs, text_tags,
-                                                                                text_mask, box_mask, use_raw=use_raw)
+                                                                                text_mask, box_mask, use_raw=use_raw,
+                                                                                normalization=self.normalization)
             outputs.update({"attention_loss_1": attention_loss_1, "attention_loss_2": attention_loss_2})
             attention_loss = attention_loss_1 + attention_loss_2
 
@@ -516,7 +518,7 @@ class ResNetVLBERT(Module):
             return vg_loss
 
 
-def get_attention_supervision_loss(raw_attention, text_tags, text_mask, box_mask, use_raw=True):
+def get_attention_supervision_loss(raw_attention, text_tags, text_mask, box_mask, normalization="linear", use_raw=True):
     # suffix 1 refers to text-to-roi attention and suffix 2 refers to roi-to-text
     # reformat attention output by transposing batch and layer dimension
     raw_attention = [layer.unsqueeze(0) for layer in raw_attention]
@@ -526,7 +528,7 @@ def get_attention_supervision_loss(raw_attention, text_tags, text_mask, box_mask
     attention = raw_attention
     if not use_raw:
         attention = get_attention_rollout(raw_attention)
-        n_heads = 1 # attention rollout is already averaged over the heads
+        n_heads = 1  # attention rollout is already averaged over the heads
     attention_loss_1 = text_tags.new_zeros((len(attention)), device=text_tags.device, dtype=torch.float32)
     attention_loss_2 = text_tags.new_zeros((len(attention)), device=text_tags.device, dtype=torch.float32)
     grounded_words = torch.cat(((text_tags > 0),
@@ -542,6 +544,7 @@ def get_attention_supervision_loss(raw_attention, text_tags, text_mask, box_mask
                                                          dtype=torch.uint8)), dim=1)
     n_grounded_boxes = torch.tensor([len(torch.unique(text_tags[i][text_tags[i] > 0]))
                                      for i in range(len(text_tags))]).sum()
+    epsilon = 1e-6
     for i, attn in enumerate(attention):
         if text_tags[i].sum().item() == 0:
             attention_loss_1[i] = 0.
@@ -557,7 +560,10 @@ def get_attention_supervision_loss(raw_attention, text_tags, text_mask, box_mask
                 attn_1 = attn[:, :, grounded_words[i]][:, :, :, boxes_pos[i]]
             else:  # attention rollout is already averaged over the heads
                 attn_1 = attn[:, grounded_words[i]][:, :, boxes_pos[i]]
-            norm_log_attn_1 = F.log_softmax(attn_1, dim=-1)
+            if normalization == "linear":
+                norm_log_attn_1 = torch.log(epsilon + attn_1 / (attn_1.sum(-1, keepdim=True) + epsilon))
+            else:
+                norm_log_attn_1 = F.log_softmax(attn_1, dim=-1)
 
             # flatten both attention and labels with respect to layers and heads
             norm_log_attn_1 = norm_log_attn_1.view((-1, attn_1.size(-1)))
@@ -575,8 +581,11 @@ def get_attention_supervision_loss(raw_attention, text_tags, text_mask, box_mask
                 attn_2 = attn[:, :, boxes_pos[i]][:, :, grounded_boxes][:, :, :, text_pos[i]]
             else:  # attention rollout is already averaged over the heads
                 attn_2 = attn[:, boxes_pos[i]][:, grounded_boxes][:, :, text_pos[i]]
-            norm_log_attn_2 = F.log_softmax(attn_2, dim=-1)
-            # flatten both attention and labels with respect to layers and heads
+            if normalization == "linear":
+                norm_log_attn_2 = torch.log(epsilon + attn_2 / (attn_2.sum(-1, keepdim=True) + epsilon))
+            else:
+                norm_log_attn_2 = F.log_softmax(attn_2, dim=-1)
+                # flatten both attention and labels with respect to layers and heads
             norm_log_attn_2 = norm_log_attn_2.view((-1, attn_2.size(-1)))
             attn_label_2 = attn_label_2.view((-1, attn_label_2.size(-1)))
             attention_loss_2[i] = F.binary_cross_entropy_with_logits(norm_log_attn_2,
