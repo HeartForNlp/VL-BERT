@@ -226,9 +226,6 @@ class ResNetVLBERT(Module):
                       label):
         ###########################################
         # visual feature extraction
-
-        # Don't know what segments are for
-        # segms = masks
         
         box_mask = (boxes[:, :, -1] > - 0.5)
         max_len = int(box_mask.sum(1).max().item())
@@ -247,7 +244,6 @@ class ResNetVLBERT(Module):
                                                     classes=None,
                                                     segms=None)
 
-        # For now no tags
         sentence1_ids = sentence1[:, :, 0]
         mask1 = (sentence1[:, :, 0] > 0.5)
         sentence1_tags = sentence1[:, :, 1]
@@ -270,13 +266,13 @@ class ResNetVLBERT(Module):
         
         # prepare text
         text_input_ids, text_token_type_ids, text_tags, text_mask, phrase_mask = self.prepare_text(sentence1_ids,
-                                                                                                    sentence2_ids,
-                                                                                                    mask1,
-                                                                                                    mask2,
-                                                                                                    sentence1_tags,
-                                                                                                    sentence2_tags,
-                                                                                                    phrase1_mask,
-                                                                                                    phrase2_mask)
+                                                                                                   sentence2_ids,
+                                                                                                   mask1,
+                                                                                                   mask2,
+                                                                                                   sentence1_tags,
+                                                                                                   sentence2_tags,
+                                                                                                   phrase1_mask,
+                                                                                                   phrase2_mask)
 
         # Add visual feature to text elements
         if self.config.NETWORK.NO_GROUNDING:
@@ -335,7 +331,7 @@ class ResNetVLBERT(Module):
                         'sentence_label': sentence_label.long(),
                         'sentence_cls_loss': sentence_cls_loss})
 
-        # phrasal paraphrases classification (later)
+        # phrasal paraphrases classification
         phrase_cls_loss = sentence_logits.new_zeros(())
         if self.use_phrasal_paraphrases:
             phrase_labels = phrase_labels.view((-1))
@@ -389,9 +385,6 @@ class ResNetVLBERT(Module):
         ###########################################
         # visual feature extraction
 
-        # Don't know what segments are for
-        # segms = masks
-
         # For now use all boxes
         box_mask = torch.ones(boxes[:, :, -1].size(), dtype=torch.uint8, device=boxes.device)
 
@@ -399,7 +392,6 @@ class ResNetVLBERT(Module):
         box_mask = box_mask[:, :max_len]
         boxes = boxes[:, :max_len].type(torch.float32)
 
-        # segms = segms[:, :max_len]
         if self.config.NETWORK.BLIND:
             obj_reps = {'obj_reps': boxes.new_zeros((*boxes.shape[:-1], self.config.NETWORK.IMAGE_FINAL_DIM))}
         else:
@@ -618,7 +610,6 @@ def get_attention_rollout(raw_attention):
     for i in range(1, n_layers):
         attn_rollout[:, i] = torch.matmul(res_avg_attn[:, i], attn_rollout[:, i - 1])
     return attn_rollout
-
 
 
 def find_phrases(text_tags):

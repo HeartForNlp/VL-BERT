@@ -23,7 +23,6 @@ from common.nlp.roberta import RobertaTokenizer
 from vgp.function.hard_neg_sampling import main
 
 
-
 class VGPDataset(Dataset):
     def __init__(self, captions_set, ann_file, roi_set, image_set, root_path, data_path, small_version=False,
                  negative_sampling='hard', phrase_cls=True, transform=None, test_mode=False, zip_mode=False,
@@ -65,7 +64,7 @@ class VGPDataset(Dataset):
         self.ignore_db_cache = ignore_db_cache
         self.cache_dir = os.path.join(root_path, 'cache')
         self.add_image_as_a_box = add_image_as_a_box
-        self.on_memory = on_memory
+        self.on_memory = False # mode True doesn't work
         if not os.path.exists(self.cache_dir):
             makedirsExist(self.cache_dir)
         self.basic_tokenizer = basic_tokenizer if basic_tokenizer is not None \
@@ -291,7 +290,7 @@ class VGPDataset(Dataset):
                     formatted_phrase = phrase.split(" ")
                     flattened_caption = " ".join(formatted_text[0]).replace("  ", " ").split(" ")
                     idx_start = find_sub_list(formatted_phrase, flattened_caption)
-                    if idx_start is None:
+                    if idx_start is None: # This is for debugging
                         print(idb)
                         print(formatted_phrase)
                         print(flattened_caption)
@@ -304,7 +303,7 @@ class VGPDataset(Dataset):
                     formatted_phrase = phrase.split(" ")
                     flattened_caption = " ".join(formatted_text[1]).replace("  ", " ").split(" ")
                     idx_start = find_sub_list(formatted_phrase, flattened_caption)
-                    if idx_start is None:
+                    if idx_start is None: # This is for debugging
                         print(idb)
                         print(formatted_phrase)
                         print(flattened_caption)
@@ -398,10 +397,12 @@ def find_sub_list(sublist, full_list):
 
 
 def flatten_l(l):
+    # Flattens a list
     return [item for sublist in l for item in sublist]
         
         
 def rm_inclusions(phrases):
+    # Removes pairs of phrases that are included in another pair of phrases
     pairs = np.array(phrases)[:, :2]
     incl_idx = []
     for k, pair1 in enumerate(pairs):
@@ -412,7 +413,7 @@ def rm_inclusions(phrases):
 
 
 def rm_redundancies(relevant_phrases):
-    # remove pairs of phrases that are redundant
+    # remove pairs of phrases that are identical
     if relevant_phrases.shape[0] > 0:
         pairs = relevant_phrases[:, :2]
         redundancies = []
@@ -429,6 +430,7 @@ def rm_redundancies(relevant_phrases):
 
 
 def get_clean_phrases(full_phrases_df, img_id, caption1, caption2):
+    # Retrieves phrasal paraphrases for one image and filters out bad pairs (redundant or inclusions)
     relevant_phrases_df = full_phrases_df[full_phrases_df["image"] == int(img_id)]
     relevant_phrases = np.array(relevant_phrases_df[["original_phrase1", "original_phrase2",
                                                      "type_label"]].values)
