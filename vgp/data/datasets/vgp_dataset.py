@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 import io
 
 import sys
+
 root_path = os.path.abspath(os.getcwd())
 if root_path not in sys.path:
     sys.path.append(root_path)
@@ -45,7 +46,8 @@ class VGPDataset(Dataset):
         """
         super(VGPDataset, self).__init__()
 
-        assert not cache_mode, 'currently not support cache mode!'
+        # temperarily enable cache mode and see if it works
+        # assert not cache_mode, 'currently not support cache mode!'
 
         self.data_path = data_path
         self.root_path = root_path
@@ -64,7 +66,7 @@ class VGPDataset(Dataset):
         self.ignore_db_cache = ignore_db_cache
         self.cache_dir = os.path.join(root_path, 'cache')
         self.add_image_as_a_box = add_image_as_a_box
-        self.on_memory = False # mode True doesn't work
+        self.on_memory = False  # mode True doesn't work
         if not os.path.exists(self.cache_dir):
             makedirsExist(self.cache_dir)
         self.basic_tokenizer = basic_tokenizer if basic_tokenizer is not None \
@@ -73,9 +75,9 @@ class VGPDataset(Dataset):
             if pretrained_model_name is None:
                 pretrained_model_name = 'bert-base-uncased'
             if 'roberta' in pretrained_model_name:
-                tokenizer = RobertaTokenizer.from_pretrained(pretrained_model_name, cache_dir=self.cache_dir)
+                tokenizer = RobertaTokenizer.from_pretrained(pretrained_model_name)
             else:
-                tokenizer = BertTokenizer.from_pretrained(pretrained_model_name, cache_dir=self.cache_dir)
+                tokenizer = BertTokenizer.from_pretrained(pretrained_model_name)
         self.tokenizer = tokenizer
 
         if zip_mode:
@@ -147,7 +149,7 @@ class VGPDataset(Dataset):
                             db_i["phrase_labels"] = get_clean_phrases(phrases_df, img_id, list_captions[i],
                                                                       list_captions[j])
                         if self.on_memory:
-                            #db_i["image"] = open(os.path.join(self.image_set, img_id + ".jpg"), "rb")
+                            # db_i["image"] = open(os.path.join(self.image_set, img_id + ".jpg"), "rb")
                             image = Image.open(os.path.join(self.image_set, img_id + ".jpg"))
                             db_i["image"] = image.copy()
                             image.close()
@@ -245,7 +247,7 @@ class VGPDataset(Dataset):
         # clamp boxes
         boxes[:, [0, 2]] = boxes[:, [0, 2]].clamp(min=0, max=w0 - 1)
         boxes[:, [1, 3]] = boxes[:, [1, 3]].clamp(min=0, max=h0 - 1)
-        
+
         # keep box names and dimensions separated
         box_names = boxes[:, -1].tolist()
         boxes = boxes[:, :4]
@@ -256,7 +258,7 @@ class VGPDataset(Dataset):
 
         # Tokenize and align tokens with visual boxes
         tokens1 = [self.tokenizer.tokenize(raw_text) for raw_text in formatted_text[0]]
-        txt_visual_ground1 = [[relevant_boxes[0][i]]*len(tokens) for i, tokens in enumerate(tokens1)]
+        txt_visual_ground1 = [[relevant_boxes[0][i]] * len(tokens) for i, tokens in enumerate(tokens1)]
         tokens2 = [self.tokenizer.tokenize(raw_text) for raw_text in formatted_text[1]]
         txt_visual_ground2 = [[relevant_boxes[1][i]] * len(tokens) for i, tokens in enumerate(tokens2)]
 
@@ -290,20 +292,21 @@ class VGPDataset(Dataset):
                     formatted_phrase = phrase.split(" ")
                     flattened_caption = " ".join(formatted_text[0]).replace("  ", " ").split(" ")
                     idx_start = find_sub_list(formatted_phrase, flattened_caption)
-                    if idx_start is None: # This is for debugging
+                    if idx_start is None:  # This is for debugging
                         print(idb)
                         print(formatted_phrase)
                         print(flattened_caption)
                     mask = [0] * len(flattened_caption)
-                    mask[idx_start:idx_start+len(formatted_phrase)] = [1] * len(formatted_phrase)
+                    mask[idx_start:idx_start + len(formatted_phrase)] = [1] * len(formatted_phrase)
                     phrase_mask1[:, k] = torch.tensor(flatten_l([[mask[i]] * len(toks)
-                                                            for i, toks in enumerate([self.tokenizer.tokenize(word)
-                                                                                     for word in flattened_caption])]))
+                                                                 for i, toks in enumerate([self.tokenizer.tokenize(word)
+                                                                                           for word in
+                                                                                           flattened_caption])]))
                 for k, phrase in enumerate(phrases_2):
                     formatted_phrase = phrase.split(" ")
                     flattened_caption = " ".join(formatted_text[1]).replace("  ", " ").split(" ")
                     idx_start = find_sub_list(formatted_phrase, flattened_caption)
-                    if idx_start is None: # This is for debugging
+                    if idx_start is None:  # This is for debugging
                         print(idb)
                         print(formatted_phrase)
                         print(flattened_caption)
@@ -392,15 +395,15 @@ class VGPDataset(Dataset):
 def find_sub_list(sublist, full_list):
     n = len(sublist)
     for ind in (i for i, e in enumerate(full_list) if e == sublist[0]):
-        if full_list[ind:ind+n] == sublist:
+        if full_list[ind:ind + n] == sublist:
             return ind
 
 
 def flatten_l(l):
     # Flattens a list
     return [item for sublist in l for item in sublist]
-        
-        
+
+
 def rm_inclusions(phrases):
     # Removes pairs of phrases that are included in another pair of phrases
     pairs = np.array(phrases)[:, :2]
@@ -429,7 +432,12 @@ def rm_redundancies(relevant_phrases):
     return relevant_phrases
 
 
-def get_clean_phrases(full_phrases_df, img_id, caption1, caption2):
+"""
+this is the original code to get clean phrases, use multiple classes and half of the vgp dataset
+"""
+
+
+def get_clean_phrases1(full_phrases_df, img_id, caption1, caption2):
     # Retrieves phrasal paraphrases for one image and filters out bad pairs (redundant or inclusions)
     relevant_phrases_df = full_phrases_df[full_phrases_df["image"] == int(img_id)]
     relevant_phrases = np.array(relevant_phrases_df[["original_phrase1", "original_phrase2",
@@ -465,25 +473,95 @@ def get_clean_phrases(full_phrases_df, img_id, caption1, caption2):
                     ((idx2 == 0 or caption2[idx2 - 1] == " ") and caption2[idx2 + len(ph2)] in [" ", "]"]):
                 present_pairs.append([ph1, ph2, ph_label])
     if len(present_pairs) == 0:
-        return [], [], [] 
-    
-    # remove inclusions
+        return [], [], []
+
+        # remove inclusions
+    cleaned_pairs = rm_inclusions(present_pairs)
+    return cleaned_pairs[:, 0], cleaned_pairs[:, 1], cleaned_pairs[:, 2]
+
+
+"""
+this is the current version to use binary data
+"""
+
+
+def get_clean_phrases(full_phrases_df, img_id, caption1, caption2):
+    # Retrieves phrasal paraphrases for one image and filters out bad pairs (redundant or inclusions)
+    relevant_phrases_df = full_phrases_df[full_phrases_df["image"] == int(img_id)]
+    relevant_phrases = np.array(relevant_phrases_df[["original_phrase1", "original_phrase2",
+                                                     "ytrue"]].values)
+    if len(relevant_phrases) == 0:
+        return [], [], []
+    unique_phrases = rm_redundancies(relevant_phrases)
+    present_pairs = []
+    count_all = 0
+    count_1 = 0
+    for row in unique_phrases:
+        if row[0] in caption1 and row[1] in caption2:
+            ph1 = row[0]
+            ph2 = row[1]
+            ph_label = 0
+            count_all += 1
+            if row[2] == True:
+                count_1 += 1
+                ph_label = 1
+            # avoid case where category label of visual grounding tag gets detected as a phrase
+            idx1 = caption1.index(ph1)
+            idx2 = caption2.index(ph2)
+            # print("row", row)
+            # print("caption1: ", caption1)
+            # print("caption2: ", caption2)
+            # print("idx1: ", idx1)
+            # print("idx2: ", idx2)
+            if ((idx1 == 0 or caption1[idx1 - 1] == " ") and (
+                    idx1 + len(ph1) < len(caption1) and caption1[idx1 + len(ph1)] in [" ", "]"])) and \
+                    ((idx2 == 0 or caption2[idx2 - 1] == " ") and (
+                            idx2 + len(ph2) < len(caption2) and caption2[idx2 + len(ph2)] in [" ", "]"])):
+                present_pairs.append([ph1, ph2, ph_label])
+        elif row[1] in caption1 and row[0] in caption2:
+            ph1 = row[1]
+            ph2 = row[0]
+            ph_label = 0
+            count_all += 1
+            if row[2] == True:
+                count_1 += 1
+                ph_label = 1
+
+            idx1 = caption1.index(ph1)
+            idx2 = caption2.index(ph2)
+            # print("row", row)
+            # print("caption1: ", caption1)
+            # print("caption2: ", caption2)
+            # print("idx1: ", idx1)
+            # print("idx2: ", idx2)
+
+            if ((idx1 == 0 or caption1[idx1 - 1] == " ") and (
+                    idx1 + len(ph1) < len(caption1) and caption1[idx1 + len(ph1)] in [" ", "]"])) and \
+                    ((idx2 == 0 or caption2[idx2 - 1] == " ") and (
+                            idx2 + len(ph2) < len(caption2) and caption2[idx2 + len(ph2)] in [" ", "]"])):
+                present_pairs.append([ph1, ph2, ph_label])
+    if len(present_pairs) == 0:
+        return [], [], []
+
+        # remove inclusions
     cleaned_pairs = rm_inclusions(present_pairs)
     return cleaned_pairs[:, 0], cleaned_pairs[:, 1], cleaned_pairs[:, 2]
 
 
 def test_vgp():
-    ann_file = "full_data_type_phrase_pair_train.csv"
+    # ann_file = "full_data_type_phrase_pair_train.csv"
+    ann_file = "train.csv"
     image_set = "flickr30k-images"
     roi_set = "Annotations"
     root_path = ""
-    data_path = os.path.join("../../../", "data/vgp/")
+    # data_path = os.path.join("../../../", "data/vgp/")
+    data_path = os.path.join("data/vgp/")
     dataset = VGPDataset(captions_set="train_captions", ann_file=ann_file, roi_set=roi_set, image_set=image_set,
-                         small_version=True, phrase_cls=True, negative_sampling='hard', root_path=root_path,
+                         small_version=True, cache_db=True, ignore_db_cache=False, phrase_cls=True,
+                         negative_sampling='hard', root_path=root_path,
                          data_path=data_path)
     print(dataset.__getitem__(29300))
-    
+
 
 if __name__ == "__main__":
     test_vgp()
-
