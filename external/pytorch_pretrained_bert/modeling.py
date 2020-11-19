@@ -336,7 +336,7 @@ class BertSelfOutput(nn.Module):
 class BertAttention(nn.Module):
     def __init__(self, config):
         super(BertAttention, self).__init__()
-        self.self = BertSelfAttention(config)
+        self.self = BertSelfAttention(config) # attention
         self.output = BertSelfOutput(config)
 
     def forward(self, input_tensor, attention_mask, output_attention_probs=False):
@@ -401,7 +401,7 @@ class BertEncoder(nn.Module):
     def __init__(self, config):
         super(BertEncoder, self).__init__()
         layer = BertLayer(config)
-        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(config.num_hidden_layers)])
+        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(config.num_hidden_layers)]) # many layers
 
     def forward(self, hidden_states, attention_mask, output_all_encoded_layers=True, output_attention_probs=False):
         all_encoder_layers = []

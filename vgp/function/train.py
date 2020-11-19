@@ -267,6 +267,12 @@ def train_net(args, config):
             vgp_metrics.LossLogger("vg_loss", display_name="VG_loss", allreduce=args.dist,
                                    num_replicas=world_size if args.dist else 1))
 
+    # todo change the config accordingly
+    if config.NETWORK.DISTILL_ATTENTION is not None:
+        train_metrics_list.append(
+            vgp_metrics.LossLogger("attention_distill_KL_loss", display_name="attention_KL_loss", allreduce=args.dist,
+                                 num_replicas=world_size if args.dist else 1))
+
     train_metrics = CompositeEvalMetric()
     val_metrics = CompositeEvalMetric()
     for child_metric in train_metrics_list:

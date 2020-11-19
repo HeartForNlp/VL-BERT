@@ -28,6 +28,8 @@ class ResNetVLBERT(Module):
         self.supervise_attention = config.NETWORK.SUPERVISE_ATTENTION
         self.normalization = config.NETWORK.ATTENTION_NORM_METHOD
         self.ewc_reg = config.NETWORK.EWC_REG
+        self.distill_attention = config.NETWORK.DISTILL_ATTENTION
+
         self.importance_hparam = 0.
         if config.NETWORK.EWC_REG:
             self.fisher = pickle.load(open(config.NETWORK.FISHER_PATH, "rb"))
@@ -69,7 +71,15 @@ class ResNetVLBERT(Module):
 
         self.vlbert = VisualLinguisticBert(config.NETWORK.VLBERT,
                                            language_pretrained_model_path=language_pretrained_model_path)
-        
+
+        self.fixed_vlbert = VisualLinguisticBert(config.NETWORK.VLBERT,
+                                                 language_pretrained_model_path=language_pretrained_model_path)
+
+        # TODO set all the params' require_grad in fixed_vlbert to False
+        for param in self.fixed_vlbert._module.parameters():
+            param.requires_grad = False
+
+
         self.for_pretrain = False
         dim = config.NETWORK.VLBERT.hidden_size
         if self.align_caption_img:
@@ -315,6 +325,7 @@ class ResNetVLBERT(Module):
                                                                                 output_text_and_object_separately=True,
                                                                                 output_attention_probs=False)
 
+
         ###########################################
         outputs = {}
         
@@ -373,6 +384,29 @@ class ResNetVLBERT(Module):
 
         loss = sentence_cls_loss.mean() + self.config.NETWORK.PHRASE_LOSS_WEIGHT * phrase_cls_loss + \
                self.config.NETWORK.ATTENTION_LOSS_WEIGHT * attention_loss + self.importance_hparam * ewc_loss
+
+        # Model distillation loss against catastrophic forgetting
+        # need to get a copy of the original model parameters
+        if self.distill_attention:
+            # TODO check calculate transfer attention
+
+            _, _, _, fixed_attention_probs = \
+                self.vlbert_fixed(text_input_ids,
+                                  text_token_type_ids,
+                                  text_visual_embeddings,
+                                  text_mask,
+                                  object_vl_embeddings,
+                                  box_mask,
+                                  output_all_encoded_layers=False,
+                                  output_text_and_object_separately=True,
+                                  output_attention_probs=True)
+
+            distill_layers = self.distill_attention.get("layers", [4,5,6,7,8,9])
+            kl_loss = get_attention_KL_div_loss(fixed_attention_probs, attention_probs, distill_layers)
+            outputs.update({"attention_distill_KL_loss": kl_loss})
+            factor = self.distill_attention.factor
+
+            loss = (1 - factor) * loss + factor * kl_loss
 
         return outputs, loss
 
@@ -611,6 +645,25 @@ def get_attention_rollout(raw_attention):
         attn_rollout[:, i] = torch.matmul(res_avg_attn[:, i], attn_rollout[:, i - 1])
     return attn_rollout
 
+
+def get_attention_KL_div_loss(transfer_attention, new_attention, distill_layers=[3,4,5,6,7,8,9]):
+    # transfer_attention = [layer.unsqueeze(0) for layer in transfer_attention]
+    transfer_attention = [transfer_attention[l].unsqueeze(0) for l in distill_layers]
+    transfer_attention = torch.cat(transfer_attention).permute((1, 0,2,3,4))
+    print("attention shape:" , transfer_attention.shape)
+
+    n_layers = transfer_attention.size(1)
+    n_heads = transfer_attention.size(2)
+    print("n_layers: ,", n_layers, "n_heads", n_heads)
+
+    # new_attention = [layer.unsqueeze(0) for layer in new_attention]
+    new_attention = [new_attention[l].unsqueeze(0) for l in distill_layers]
+    new_attention = torch.cat(new_attention).permute((1, 0, 2, 3, 4))
+
+    loss_func = torch.nn.KLDivLoss()
+
+
+    return loss_func(transfer_attention, new_attention)
 
 def find_phrases(text_tags):
     res = []
