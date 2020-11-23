@@ -76,9 +76,8 @@ class ResNetVLBERT(Module):
                                                  language_pretrained_model_path=language_pretrained_model_path)
 
         # TODO set all the params' require_grad in fixed_vlbert to False
-        for param in self.fixed_vlbert._module.parameters():
+        for param in self.fixed_vlbert.parameters():
             param.requires_grad = False
-
 
         self.for_pretrain = False
         dim = config.NETWORK.VLBERT.hidden_size
@@ -391,7 +390,7 @@ class ResNetVLBERT(Module):
             # TODO check calculate transfer attention
 
             _, _, _, fixed_attention_probs = \
-                self.vlbert_fixed(text_input_ids,
+                self.fixed_vlbert(text_input_ids,
                                   text_token_type_ids,
                                   text_visual_embeddings,
                                   text_mask,
@@ -646,24 +645,31 @@ def get_attention_rollout(raw_attention):
     return attn_rollout
 
 
-def get_attention_KL_div_loss(transfer_attention, new_attention, distill_layers=[3,4,5,6,7,8,9]):
-    # transfer_attention = [layer.unsqueeze(0) for layer in transfer_attention]
+def get_attention_KL_div_loss(transfer_attention, new_attention, distill_layers):
     transfer_attention = [transfer_attention[l].unsqueeze(0) for l in distill_layers]
     transfer_attention = torch.cat(transfer_attention).permute((1, 0,2,3,4))
-    print("attention shape:" , transfer_attention.shape)
+    # print("attention shape:" , transfer_attention.shape)
 
     n_layers = transfer_attention.size(1)
     n_heads = transfer_attention.size(2)
-    print("n_layers: ,", n_layers, "n_heads", n_heads)
+    input_len = transfer_attention.size(3)
+    # print("n_layers: ", n_layers, "n_heads", n_heads, "input_len", input_len)
+    # print("probs: ?", transfer_attention.sum(dim=[3,4]))
+    # print("probs: ?, on dim 4", transfer_attention.sum(dim=4))
+    # print("probs: ?, on dim 3", transfer_attention.sum(dim=3))
 
-    # new_attention = [layer.unsqueeze(0) for layer in new_attention]
     new_attention = [new_attention[l].unsqueeze(0) for l in distill_layers]
     new_attention = torch.cat(new_attention).permute((1, 0, 2, 3, 4))
+    new_attention.detach()
 
-    loss_func = torch.nn.KLDivLoss()
+    norm_log_transfer_attn = F.softmax(transfer_attention, dim=-1)
+    norm_log_new_attn = F.log_softmax(new_attention, dim=-1)
+    # print("probs after softmax, on dim 4", transfer_attention.sum(dim=-1)[0][0][0])
 
+    loss_func = torch.nn.KLDivLoss(reduction='mean')
 
-    return loss_func(transfer_attention, new_attention)
+    return loss_func(norm_log_new_attn.reshape(-1, input_len),
+                     norm_log_transfer_attn.reshape(-1, input_len))
 
 def find_phrases(text_tags):
     res = []
