@@ -28,11 +28,11 @@ def make_batch_data_sampler(dataset, sampler, aspect_grouping, batch_size):
     if aspect_grouping:
         group_ids = dataset.group_ids
         batch_sampler = samplers.GroupedBatchSampler(
-            sampler, group_ids, batch_size, drop_uneven=False
+            sampler, group_ids, batch_size, drop_uneven=True
         )
     else:
         batch_sampler = torch.utils.data.sampler.BatchSampler(
-            sampler, batch_size, drop_last=False
+            sampler, batch_size, drop_last=True
         )
     return batch_sampler
 
@@ -91,7 +91,7 @@ def make_dataloader(cfg, dataset=None, mode='train', distributed=False, num_repl
     dataloader = torch.utils.data.DataLoader(dataset=dataset,
                                              batch_sampler=batch_sampler,
                                              num_workers=num_workers,
-                                             pin_memory=False,
+                                             pin_memory=True,
                                              collate_fn=collator)
     if expose_sampler:
         return dataloader, sampler

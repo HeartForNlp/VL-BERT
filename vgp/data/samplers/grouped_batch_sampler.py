@@ -19,7 +19,7 @@ class GroupedBatchSampler(BatchSampler):
             size is less than ``batch_size``
     """
 
-    def __init__(self, sampler, group_ids, batch_size, drop_uneven=False):
+    def __init__(self, sampler, group_ids, batch_size, drop_uneven=True):
         if not isinstance(sampler, Sampler):
             raise ValueError(
                 "sampler should be an instance of "

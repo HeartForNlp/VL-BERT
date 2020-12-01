@@ -75,7 +75,7 @@ class ResNetVLBERT(Module):
         self.fixed_vlbert = VisualLinguisticBert(config.NETWORK.VLBERT,
                                                  language_pretrained_model_path=language_pretrained_model_path)
 
-        # TODO set all the params' require_grad in fixed_vlbert to False
+        # set all the params' require_grad in fixed_vlbert to False
         for param in self.fixed_vlbert.parameters():
             param.requires_grad = False
 
@@ -649,6 +649,9 @@ def get_attention_KL_div_loss(transfer_attention, new_attention, distill_layers)
     transfer_attention = [transfer_attention[l].unsqueeze(0) for l in distill_layers]
     transfer_attention = torch.cat(transfer_attention).permute((1, 0,2,3,4))
     # print("attention shape:" , transfer_attention.shape)
+    batch_size = transfer_attention.size(0)
+    if batch_size == 1:
+        print("the epoch has batch_size of 1")
 
     n_layers = transfer_attention.size(1)
     n_heads = transfer_attention.size(2)
@@ -666,10 +669,9 @@ def get_attention_KL_div_loss(transfer_attention, new_attention, distill_layers)
     norm_log_new_attn = F.log_softmax(new_attention, dim=-1)
     # print("probs after softmax, on dim 4", transfer_attention.sum(dim=-1)[0][0][0])
 
-    loss_func = torch.nn.KLDivLoss(reduction='mean')
+    loss_func = torch.nn.KLDivLoss(reduction='batchmean')
 
-    return loss_func(norm_log_new_attn.reshape(-1, input_len),
-                     norm_log_transfer_attn.reshape(-1, input_len))
+    return loss_func(norm_log_new_attn, norm_log_transfer_attn) / input_len
 
 def find_phrases(text_tags):
     res = []
