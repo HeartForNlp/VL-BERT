@@ -110,7 +110,8 @@ class VisualLinguisticBert(BaseModel):
                                                                                           text_mask,
                                                                                           object_vl_embeddings,
                                                                                           object_mask)
-
+        # print("atention_mask")
+        # print(attention_mask)
         # We create a 3D attention mask from a 2D tensor mask.
         # Sizes are [batch_size, 1, 1, to_seq_length]
         # So we can broadcast to [batch_size, num_heads, from_seq_length, to_seq_length]
@@ -133,6 +134,8 @@ class VisualLinguisticBert(BaseModel):
                                                            extended_attention_mask,
                                                            output_all_encoded_layers=output_all_encoded_layers,
                                                            output_attention_probs=output_attention_probs)
+            # print("attention probs after encoder")
+            # print(attention_probs)
         else:
             encoded_layers = self.encoder(embedding_output,
                                           extended_attention_mask,

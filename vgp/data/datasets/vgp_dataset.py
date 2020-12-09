@@ -45,8 +45,7 @@ class VGPDataset(Dataset):
         """
         super(VGPDataset, self).__init__()
 
-        assert not cache_mode, 'currently not support cache mode!'
-
+        # assert not cache_mode, 'currently not support cache mode!'
         self.data_path = data_path
         self.root_path = root_path
         self.captions_set = os.path.join(data_path, captions_set)
@@ -60,7 +59,9 @@ class VGPDataset(Dataset):
         self.test_mode = test_mode
         self.zip_mode = zip_mode
         self.cache_mode = cache_mode
-        self.cache_db = cache_db
+        # self.cache_db = cache_db
+        self.cache_db = True
+
         self.ignore_db_cache = ignore_db_cache
         self.cache_dir = os.path.join(root_path, 'cache')
         self.add_image_as_a_box = add_image_as_a_box

@@ -13,6 +13,7 @@ from common.module import Module
 from common.fast_rcnn import FastRCNN
 from common.visual_linguistic_bert import VisualLinguisticBert, VisualLinguisticBertMVRCHeadTransform
 from common.nlp.roberta import RobertaTokenizer
+import copy
 
 BERT_WEIGHTS_NAME = 'pytorch_model.bin'
 
@@ -71,9 +72,17 @@ class ResNetVLBERT(Module):
 
         self.vlbert = VisualLinguisticBert(config.NETWORK.VLBERT,
                                            language_pretrained_model_path=language_pretrained_model_path)
+        #
+        # self.fixed_vlbert = VisualLinguisticBert(config.NETWORK.VLBERT,
+        #                                          language_pretrained_model_path=language_pretrained_model_path)
+        self.fixed_vlbert = copy.deepcopy(self.vlbert)
+        self.fixed_vlbert.eval()
+        assert self.fixed_vlbert.training == False
 
-        self.fixed_vlbert = VisualLinguisticBert(config.NETWORK.VLBERT,
-                                                 language_pretrained_model_path=language_pretrained_model_path)
+        # check if two models are the same initially
+        for p1, p2 in zip(self.vlbert.parameters(), self.fixed_vlbert.parameters()):
+            assert p1.data.ne(p2.data).sum() == 0
+
 
         # set all the params' require_grad in fixed_vlbert to False
         for param in self.fixed_vlbert.parameters():
@@ -300,9 +309,11 @@ class ResNetVLBERT(Module):
 
         # Visual Linguistic BERT
         if self.config.NETWORK.NO_OBJ_ATTENTION or self.config.NETWORK.BLIND:
+            print("box_mask should zero")
             box_mask.zero_()
 
         if self.supervise_attention in ["direct", "semi-direct"]:
+            # self.fixed_vlbert.eval()
             hidden_states_text, hidden_states_objects, pooled_rep, attention_probs = \
                 self.vlbert(text_input_ids,
                             text_token_type_ids,
@@ -313,6 +324,28 @@ class ResNetVLBERT(Module):
                             output_all_encoded_layers=False,
                             output_text_and_object_separately=True,
                             output_attention_probs=True)
+            #
+            # _, _, _, test_attention_probs = \
+            #     self.fixed_vlbert(text_input_ids,
+            #                       text_token_type_ids,
+            #                       text_visual_embeddings,
+            #                       text_mask,
+            #                       object_vl_embeddings,
+            #                       box_mask,
+            #                       output_all_encoded_layers=False,
+            #                       output_text_and_object_separately=True,
+            #                       output_attention_probs=True)
+            #
+            # print("use semi-direct !!!!!!!!!!!!")
+            # for i in range(len(attention_probs)):
+            #     print(test_attention_probs[i][0][0][0])
+            #     print(attention_probs[i][0][0][0])
+            #     print(torch.sum(test_attention_probs[i].data - attention_probs[i].data))
+            #     assert abs(torch.sum(test_attention_probs[i].data - attention_probs[i].data))  < 1e-5
+            #     print("foo")
+            #     assert test_attention_probs[i].data.ne(attention_probs[i].data).sum() == 0
+            #     print("bar")
+
         else:
             hidden_states_text, hidden_states_objects, pooled_rep = self.vlbert(text_input_ids,
                                                                                 text_token_type_ids,
@@ -387,27 +420,36 @@ class ResNetVLBERT(Module):
         # Model distillation loss against catastrophic forgetting
         # need to get a copy of the original model parameters
         if self.distill_attention:
-            # TODO check calculate transfer attention
+            if self.supervise_attention in ["direct", "semi-direct"]:
+                self.fixed_vlbert.eval() # important
+                _, _, _, fixed_attention_probs = \
+                    self.fixed_vlbert(text_input_ids,
+                                      text_token_type_ids,
+                                      text_visual_embeddings,
+                                      text_mask,
+                                      object_vl_embeddings,
+                                      box_mask,
+                                      output_all_encoded_layers=False,
+                                      output_text_and_object_separately=True,
+                                      output_attention_probs=True)
 
-            _, _, _, fixed_attention_probs = \
-                self.fixed_vlbert(text_input_ids,
-                                  text_token_type_ids,
-                                  text_visual_embeddings,
-                                  text_mask,
-                                  object_vl_embeddings,
-                                  box_mask,
-                                  output_all_encoded_layers=False,
-                                  output_text_and_object_separately=True,
-                                  output_attention_probs=True)
+                # for i in range(len(attention_probs)):
+                #     print("bar0")
+                #     assert fixed_attention_probs[i].data.ne(test_attention_probs[i].data).sum() == 0
+                #
+                # for i in range(len(attention_probs)):
+                #     print("bar")
+                #     assert fixed_attention_probs[i].data.ne(attention_probs[i].data).sum() == 0
 
-            distill_layers = self.distill_attention.get("layers", [4,5,6,7,8,9])
-            kl_loss = get_attention_KL_div_loss(fixed_attention_probs, attention_probs, distill_layers)
-            outputs.update({"attention_distill_KL_loss": kl_loss})
-            factor = self.distill_attention.factor
+                distill_layers = self.distill_attention.get("layers", [4,5,6,7,8,9])
+                kl_loss = get_attention_KL_div_loss(fixed_attention_probs, attention_probs, distill_layers)
+                outputs.update({"attention_distill_KL_loss": kl_loss})
+                factor = self.distill_attention.factor
 
-            loss = (1 - factor) * loss + factor * kl_loss
+                loss = (1 - factor) * loss + factor * kl_loss
 
         return outputs, loss
+
 
     def inference_forward(self,
                           images,
@@ -645,17 +687,26 @@ def get_attention_rollout(raw_attention):
     return attn_rollout
 
 
-def get_attention_KL_div_loss(transfer_attention, new_attention, distill_layers):
-    transfer_attention = [transfer_attention[l].unsqueeze(0) for l in distill_layers]
-    transfer_attention = torch.cat(transfer_attention).permute((1, 0,2,3,4))
+def get_attention_KL_div_loss(fixed_attention, new_attention, distill_layers):
+    # correctness check for multiple fixed_vlbert execution
+    # for i in range(len(fixed_attention)):
+    #     print(fixed_attention[i][0][0][0])
+    #     print(new_attention[i][0][0][0])
+    #     print(torch.sum(fixed_attention[i].data - new_attention[i].data))
+    #     assert abs(torch.sum(fixed_attention[i].data - new_attention[i].data))  < 1e-5
+    #     print("foo")
+
+
+    fixed_attention = [fixed_attention[l].unsqueeze(0) for l in distill_layers]
+    fixed_attention = torch.cat(fixed_attention).permute((1, 0,2,3,4))
     # print("attention shape:" , transfer_attention.shape)
-    batch_size = transfer_attention.size(0)
+    batch_size = fixed_attention.size(0)
     if batch_size == 1:
         print("the epoch has batch_size of 1")
 
-    n_layers = transfer_attention.size(1)
-    n_heads = transfer_attention.size(2)
-    input_len = transfer_attention.size(3)
+    n_layers = fixed_attention.size(1)
+    n_heads = fixed_attention.size(2)
+    input_len = fixed_attention.size(3)
     # print("n_layers: ", n_layers, "n_heads", n_heads, "input_len", input_len)
     # print("probs: ?", transfer_attention.sum(dim=[3,4]))
     # print("probs: ?, on dim 4", transfer_attention.sum(dim=4))
@@ -663,15 +714,20 @@ def get_attention_KL_div_loss(transfer_attention, new_attention, distill_layers)
 
     new_attention = [new_attention[l].unsqueeze(0) for l in distill_layers]
     new_attention = torch.cat(new_attention).permute((1, 0, 2, 3, 4))
-    new_attention.detach()
+    # new_attention.detach()
+    # fixed_attention.detach()
 
-    norm_log_transfer_attn = F.softmax(transfer_attention, dim=-1)
+    norm_fixed_attn = F.softmax(fixed_attention, dim=-1)
     norm_log_new_attn = F.log_softmax(new_attention, dim=-1)
-    # print("probs after softmax, on dim 4", transfer_attention.sum(dim=-1)[0][0][0])
+    # print("probs after softmax, on dim 4", norm_fixed_attn.sum(dim=-1)[0][0][0])
+    # print("Attention the same? ", fixed_attention[0][0][0][0])
+    # print(new_attention[0][0][0][0])
+    # assert(torch.sum(new_attention - fixed_attention) < 1e-5)
+
 
     loss_func = torch.nn.KLDivLoss(reduction='batchmean')
 
-    return loss_func(norm_log_new_attn, norm_log_transfer_attn) / input_len
+    return loss_func(norm_log_new_attn, norm_fixed_attn) / input_len
 
 def find_phrases(text_tags):
     res = []

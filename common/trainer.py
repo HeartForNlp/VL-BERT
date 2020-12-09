@@ -185,6 +185,12 @@ def train(net,
                                                  eval_metric=metrics, locals=locals())
                 _multiple_callbacks(batch_end_callbacks, batch_end_params)
 
+            if nbatch % 10000 == 0 and nbatch != 0 and epoch_end_callbacks is not None:
+                print("This is epoch {} and batch {}, saving the model".format(epoch, nbatch))
+                _multiple_callbacks(epoch_end_callbacks, epoch, net, optimizer, writer,
+                                    validation_monitor=validation_monitor)
+                print("model saved")
+
             # update end time
             end_time = time.time()
 
@@ -193,5 +199,8 @@ def train(net,
             validation_monitor(epoch, net, optimizer, writer)
         if epoch_end_callbacks is not None:
             _multiple_callbacks(epoch_end_callbacks, epoch, net, optimizer, writer, validation_monitor=validation_monitor)
+
+
+
 
 

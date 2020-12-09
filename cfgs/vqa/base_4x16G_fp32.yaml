@@ -1,13 +1,13 @@
 ---
 RNG_SEED: 12345
-OUTPUT_PATH: './output/vl-bert/vqa/phrasalVGP/noattsuperv/'
+OUTPUT_PATH: './output/vl-bert/vqa/phrasalVGP/noattsuperv/wried_distill'
 MODULE: ResNetVLBERT
-GPUS: '0,1,2,3,4,5,6'
+GPUS: '0,1,2,3'
 LOG_FREQUENT: 100
 VAL_FREQUENT: 1
 CHECKPOINT_FREQUENT: 1
 MODEL_PREFIX: 'vl-bert_base_res101_vqa'
-NUM_WORKERS_PER_GPU: 4
+NUM_WORKERS_PER_GPU: 8
 SCALES:
 - 600
 - 1000
@@ -24,14 +24,16 @@ DATASET:
   TEST_IMAGE_SET: 'test2015'
   ADD_IMAGE_AS_A_BOX: true
   ZIP_MODE: false
-  CACHE_MODE: false
+  CACHE_MODE: true
   IGNORE_DB_CACHE: false
   MASK_SIZE: 14
   BOXES: "10-100ada"
   USE_IMDB: false
 
 NETWORK:
-  PARTIAL_PRETRAIN: "./output/vl-bert/phrasalVGP/noattsuperv/base_4x16G_fp32/flickr30k-images_train/vl-bert_base_a_res101-best.model"
+#  PARTIAL_PRETRAIN: "./output/vl-bert/phrasalVGP/noattsuperv/base_4x16G_fp32/flickr30k-images_train/vl-bert_base_a_res101-best.model"
+#  PARTIAL_PRETRAIN: "./mymodel/output/vl-bert/phrasalVGP/semidirect/12-05/base_4x16G_fp32_distill_all_kl/flickr30k-images_train/vl-bert_base_a_res101-0000.model"
+  PARTIAL_PRETRAIN: "mymodel/output/vl-bert/phrasalVGP/semidirect/base_4x16G_fp32_distill/flickr30k-images_train/vl-bert_base_a_res101-0002.model"
   PARTIAL_PRETRAIN_PREFIX_CHANGES:
   - "vlbert.mlm_head.predictions.transform->final_mlp.0"
   - "module.vlbert.mlm_head.predictions.transform->module.final_mlp.0"

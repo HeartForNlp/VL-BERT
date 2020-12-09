@@ -1,6 +1,6 @@
 ---
 RNG_SEED: 12345
-OUTPUT_PATH: './output/vl-bert/phrasalVGP/semidirect/12-08-all-kl'
+OUTPUT_PATH: './output/vl-bert/phrasalVGP/semidirect/12-08-most_kl'
 MODULE: ResNetVLBERT
 GPUS: '0,1,2,3,4,5'
 LOG_FREQUENT: 100
@@ -76,7 +76,7 @@ NETWORK:
   DISTILL_ATTENTION:
     loss_func: "kl"
     layers: [4,5,6,7,8,9]
-    factor: 1
+    factor: 0.95
 
 
   ATTENTION_LOSS_WEIGHT: 1.0
@@ -125,7 +125,7 @@ TRAIN:
   RESUME: false
   AUTO_RESUME: true
   BEGIN_EPOCH: 0
-  END_EPOCH: 8
+  END_EPOCH: 2
   OPTIMIZER: 'SGD'
   CLIP_GRAD_NORM: 10
   GRAD_ACCUMULATE_STEPS: 8
