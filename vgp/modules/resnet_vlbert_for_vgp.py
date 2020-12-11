@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 import sys
 import pickle
+
 root_path = os.path.abspath(os.getcwd())
 if root_path not in sys.path:
     sys.path.append(root_path)
@@ -30,6 +31,7 @@ class ResNetVLBERT(Module):
         self.normalization = config.NETWORK.ATTENTION_NORM_METHOD
         self.ewc_reg = config.NETWORK.EWC_REG
         self.distill_attention = config.NETWORK.DISTILL_ATTENTION
+        self.distill_cls = config.NETWORK.DISTILL_CLS
 
         self.importance_hparam = 0.
         if config.NETWORK.EWC_REG:
@@ -83,7 +85,6 @@ class ResNetVLBERT(Module):
         for p1, p2 in zip(self.vlbert.parameters(), self.fixed_vlbert.parameters()):
             assert p1.data.ne(p2.data).sum() == 0
 
-
         # set all the params' require_grad in fixed_vlbert to False
         for param in self.fixed_vlbert.parameters():
             param.requires_grad = False
@@ -115,7 +116,7 @@ class ResNetVLBERT(Module):
             if config.NETWORK.PHRASE.CLASSIFIER_TYPE == "2fc":
                 self.phrasal_cls = torch.nn.Sequential(
                     torch.nn.Dropout(config.NETWORK.PHRASE.CLASSIFIER_DROPOUT, inplace=False),
-                    torch.nn.Linear(4*dim, config.NETWORK.PHRASE.CLASSIFIER_HIDDEN_SIZE),
+                    torch.nn.Linear(4 * dim, config.NETWORK.PHRASE.CLASSIFIER_HIDDEN_SIZE),
                     torch.nn.ReLU(inplace=True),
                     torch.nn.Dropout(config.NETWORK.PHRASE.CLASSIFIER_DROPOUT, inplace=False),
                     torch.nn.Linear(config.NETWORK.PHRASE.CLASSIFIER_HIDDEN_SIZE, 5),
@@ -123,7 +124,7 @@ class ResNetVLBERT(Module):
             elif config.NETWORK.PHRASE.CLASSIFIER_TYPE == "1fc":
                 self.phrasal_cls = torch.nn.Sequential(
                     torch.nn.Dropout(config.NETWORK.PHRASE.CLASSIFIER_DROPOUT, inplace=False),
-                    torch.nn.Linear(4*dim, 5)
+                    torch.nn.Linear(4 * dim, 5)
                 )
             else:
                 raise ValueError("Classifier type: {} not supported!".format(config.NETWORK.PHRASE.CLASSIFIER_TYPE))
@@ -132,7 +133,7 @@ class ResNetVLBERT(Module):
             if config.NETWORK.VG.CLASSIFIER_TYPE == "2fc":
                 self.vg_cls = torch.nn.Sequential(
                     torch.nn.Dropout(config.NETWORK.VG.CLASSIFIER_DROPOUT, inplace=False),
-                    torch.nn.Linear(2*dim, config.NETWORK.VG.CLASSIFIER_HIDDEN_SIZE),
+                    torch.nn.Linear(2 * dim, config.NETWORK.VG.CLASSIFIER_HIDDEN_SIZE),
                     torch.nn.ReLU(inplace=True),
                     torch.nn.Dropout(config.NETWORK.VG.CLASSIFIER_DROPOUT, inplace=False),
                     torch.nn.Linear(config.NETWORK.VG.CLASSIFIER_HIDDEN_SIZE, 1),
@@ -140,7 +141,7 @@ class ResNetVLBERT(Module):
             elif config.NETWORK.VG.CLASSIFIER_TYPE == "1fc":
                 self.vg_cls = torch.nn.Sequential(
                     torch.nn.Dropout(config.NETWORK.VG.CLASSIFIER_DROPOUT, inplace=False),
-                    torch.nn.Linear(2*dim, 1)
+                    torch.nn.Linear(2 * dim, 1)
                 )
             else:
                 raise ValueError("Classifier type: {} not supported!".format(config.NETWORK.PHRASE.CLASSIFIER_TYPE))
@@ -227,7 +228,7 @@ class ResNetVLBERT(Module):
             # add offsets so that every pair of phrases gets a unique id in the batch
             no_phr_mask = (phr_mask == 0)
             n_phr = torch.max(phr_mask, dim=1)[0]
-            offsets = phr_mask.new_zeros((phr_mask.size(0)*phr_mask.size(-1)))
+            offsets = phr_mask.new_zeros((phr_mask.size(0) * phr_mask.size(-1)))
             offsets[1:] = torch.cumsum(n_phr.view(-1)[:-1], dim=0)
             offsets = offsets.view((phr_mask.size(0), phr_mask.size(-1)))
             phr_mask += offsets.unsqueeze(1)
@@ -244,7 +245,7 @@ class ResNetVLBERT(Module):
                       label):
         ###########################################
         # visual feature extraction
-        
+
         box_mask = (boxes[:, :, -1] > - 0.5)
         max_len = int(box_mask.sum(1).max().item())
 
@@ -279,9 +280,8 @@ class ResNetVLBERT(Module):
             phrase1_mask, phrase2_mask = None, None
             sentence_label = label.view(-1)
 
-
         ############################################
-        
+
         # prepare text
         text_input_ids, text_token_type_ids, text_tags, text_mask, phrase_mask = self.prepare_text(sentence1_ids,
                                                                                                    sentence2_ids,
@@ -357,10 +357,10 @@ class ResNetVLBERT(Module):
                                                                                 output_text_and_object_separately=True,
                                                                                 output_attention_probs=False)
 
-
         ###########################################
         outputs = {}
-        
+        print(pooled_rep.size())
+
         # sentence classification
         sentence_logits = self.sentence_cls(pooled_rep)
         if self.align_caption_img:
@@ -379,8 +379,8 @@ class ResNetVLBERT(Module):
         if self.use_phrasal_paraphrases:
             phrase_labels = phrase_labels.view((-1))
             phrase_cls_logits = sentence_logits.new_zeros((phrase_labels.size(0), 5))
-            outputs.update({"phrase_label": phrase_labels, 
-                            "phrase_label_logits": phrase_cls_logits, 
+            outputs.update({"phrase_label": phrase_labels,
+                            "phrase_label_logits": phrase_cls_logits,
                             "phrase_cls_loss": phrase_cls_loss})
             if phrase_mask.max() > 0:
                 logits = self.get_phrase_cls(hidden_states_text, phrase_mask, text_token_type_ids)
@@ -411,7 +411,7 @@ class ResNetVLBERT(Module):
                 name = "module." + n
                 if name in self.fisher.keys():
                     ewc_loss += (self.fisher[name].to(p.device) *
-                                 (p - self.pretrain_param[name].to(p.device))**2).sum()
+                                 (p - self.pretrain_param[name].to(p.device)) ** 2).sum()
             outputs.update({"ewc_loss": ewc_loss})
 
         loss = sentence_cls_loss.mean() + self.config.NETWORK.PHRASE_LOSS_WEIGHT * phrase_cls_loss + \
@@ -419,10 +419,10 @@ class ResNetVLBERT(Module):
 
         # Model distillation loss against catastrophic forgetting
         # need to get a copy of the original model parameters
-        if self.distill_attention:
+        if self.distill_attention or self.distill_cls:
             if self.supervise_attention in ["direct", "semi-direct"]:
-                self.fixed_vlbert.eval() # important
-                _, _, _, fixed_attention_probs = \
+                self.fixed_vlbert.eval()  # important
+                _, _, fixed_pooled_rep, fixed_attention_probs = \
                     self.fixed_vlbert(text_input_ids,
                                       text_token_type_ids,
                                       text_visual_embeddings,
@@ -440,16 +440,22 @@ class ResNetVLBERT(Module):
                 # for i in range(len(attention_probs)):
                 #     print("bar")
                 #     assert fixed_attention_probs[i].data.ne(attention_probs[i].data).sum() == 0
+                if self.distill_attention:
+                    print("using distill attention")
+                    distill_layers = self.distill_attention.get("layers", [4, 5, 6, 7, 8, 9])
+                    kl_loss = get_attention_KL_div_loss(fixed_attention_probs, attention_probs, distill_layers)
+                    outputs.update({"attention_distill_KL_loss": kl_loss})
+                    factor = self.distill_attention.factor
+                    loss = (1 - factor) * loss + factor * kl_loss
 
-                distill_layers = self.distill_attention.get("layers", [4,5,6,7,8,9])
-                kl_loss = get_attention_KL_div_loss(fixed_attention_probs, attention_probs, distill_layers)
-                outputs.update({"attention_distill_KL_loss": kl_loss})
-                factor = self.distill_attention.factor
-
-                loss = (1 - factor) * loss + factor * kl_loss
+                if self.distill_cls:
+                    print("using distill cls")
+                    cls_loss = get_cls_cos_similarity_loss(fixed_pooled_rep, pooled_rep)
+                    outputs.update({"cosine_similarity_cls_loss": cls_loss})
+                    factor = self.distill_cls.factor
+                    loss = (1 - factor) * loss + factor * cls_loss
 
         return outputs, loss
-
 
     def inference_forward(self,
                           images,
@@ -538,7 +544,7 @@ class ResNetVLBERT(Module):
         else:
             sentence_logits = sentence_logits.view(-1)
         outputs.update({'sentence_label_logits': sentence_logits})
-        
+
         if self.use_phrasal_paraphrases:
             phrase_cls_logits = sentence_logits.new_zeros((1, 5)) + 100000
             outputs.update({"phrase_label_logits": phrase_cls_logits})
@@ -666,7 +672,7 @@ def get_attention_supervision_loss(raw_attention, text_tags, text_mask, box_mask
     else:
         attention_loss_1 = attention_loss_1.sum()
         attention_loss_2 = attention_loss_2.sum()
-        
+
     return attention_loss_1, attention_loss_2
 
 
@@ -687,6 +693,15 @@ def get_attention_rollout(raw_attention):
     return attn_rollout
 
 
+def get_cls_cos_similarity_loss(fixed_cls, cls):
+    #     print("the size of the fix vlbert pooler output is: {}".format(fixed_cls.size()))
+    #     print("the size of the vlbert pooler output is: {}".format(cls.size()))
+    loss_func = torch.nn.CosineEmbeddingLoss()
+    loss = loss_func(fixed_cls, cls, torch.Tensor(fixed_cls.size(0)).cuda().fill_(1.0))
+    #     print(loss)
+    return loss
+
+
 def get_attention_KL_div_loss(fixed_attention, new_attention, distill_layers):
     # correctness check for multiple fixed_vlbert execution
     # for i in range(len(fixed_attention)):
@@ -696,9 +711,8 @@ def get_attention_KL_div_loss(fixed_attention, new_attention, distill_layers):
     #     assert abs(torch.sum(fixed_attention[i].data - new_attention[i].data))  < 1e-5
     #     print("foo")
 
-
     fixed_attention = [fixed_attention[l].unsqueeze(0) for l in distill_layers]
-    fixed_attention = torch.cat(fixed_attention).permute((1, 0,2,3,4))
+    fixed_attention = torch.cat(fixed_attention).permute((1, 0, 2, 3, 4))
     # print("attention shape:" , transfer_attention.shape)
     batch_size = fixed_attention.size(0)
     if batch_size == 1:
@@ -724,10 +738,10 @@ def get_attention_KL_div_loss(fixed_attention, new_attention, distill_layers):
     # print(new_attention[0][0][0][0])
     # assert(torch.sum(new_attention - fixed_attention) < 1e-5)
 
-
     loss_func = torch.nn.KLDivLoss(reduction='batchmean')
 
     return loss_func(norm_log_new_attn, norm_fixed_attn) / input_len
+
 
 def find_phrases(text_tags):
     res = []
@@ -766,3 +780,4 @@ def test_module():
 
 if __name__ == '__main__':
     test_module()
+

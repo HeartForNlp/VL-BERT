@@ -101,6 +101,9 @@ _C.NETWORK.DISTILL_ATTENTION = {
     'layers': [4, 5, 6, 7, 8, 9],
     'factor': 0.5
 }
+_C.NETWORK.DISTILL_CLS = {
+    'factor': 0.5
+}
 _C.NETWORK.VLBERT = edict()
 # _C.NETWORK.VLBERT.vocab_size = None
 _C.NETWORK.VLBERT.input_size = 1280
