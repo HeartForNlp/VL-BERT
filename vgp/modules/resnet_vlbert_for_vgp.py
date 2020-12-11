@@ -451,19 +451,19 @@ class ResNetVLBERT(Module):
                 #     print("bar")
                 #     assert fixed_attention_probs[i].data.ne(attention_probs[i].data).sum() == 0
                 if self.distill_attention:
-                    print("using distill attention")
+                    # print("using distill attention")
                     distill_layers = self.distill_attention.get("layers", [4, 5, 6, 7, 8, 9])
                     kl_loss = get_attention_KL_div_loss(fixed_attention_probs, attention_probs, distill_layers)
                     outputs.update({"attention_distill_KL_loss": kl_loss})
                     factor = self.distill_attention.factor
-                    loss = (1 - factor) * loss + factor * kl_loss
+                    loss = loss + factor * kl_loss
 
                 if self.distill_cls:
-                    print("using distill cls")
+                    # print("using distill cls")
                     cls_loss = get_cls_cos_similarity_loss(fixed_pooled_rep, pooled_rep)
                     outputs.update({"cosine_similarity_cls_loss": cls_loss})
                     factor = self.distill_cls.factor
-                    loss = (1 - factor) * loss + factor * cls_loss
+                    loss = loss + factor * cls_loss
 
         return outputs, loss
 

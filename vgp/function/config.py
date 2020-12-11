@@ -98,14 +98,8 @@ _C.NETWORK.FISHER_PATH = ''
 _C.NETWORK.PARAM_PRETRAIN = ''
 _C.NETWORK.EWC_IMPORTANCE = 0.01
 
-_C.NETWORK.DISTILL_ATTENTION = {
-    'loss_func': "kl",
-    'layers': [4, 5, 6, 7, 8, 9],
-    'factor': 0.5
-}
-_C.NETWORK.DISTILL_CLS = {
-    'factor': 0.5
-}
+_C.NETWORK.DISTILL_ATTENTION = None
+_C.NETWORK.DISTILL_CLS = None
 _C.NETWORK.VLBERT = edict()
 # _C.NETWORK.VLBERT.vocab_size = None
 _C.NETWORK.VLBERT.input_size = 1280
