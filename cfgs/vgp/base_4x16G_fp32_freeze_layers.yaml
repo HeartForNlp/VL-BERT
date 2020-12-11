@@ -1,14 +1,14 @@
 ---
 RNG_SEED: 12345
-OUTPUT_PATH: './output/vl-bert/phrasalVGP/semidirect/12-08-most_kl'
+OUTPUT_PATH: './output/vl-bert/phrasalVGP/semidirect/'
 MODULE: ResNetVLBERT
-GPUS: '0,1,2,3,4,5'
+GPUS: '0,1,2,3'
 LOG_FREQUENT: 100
 VAL_FREQUENT: 1
 CHECKPOINT_FREQUENT: 1
 MODEL_PREFIX: 'vl-bert_base_a_res101'
-NUM_WORKERS_PER_GPU: 8
-ON_MEMORY: true
+NUM_WORKERS_PER_GPU: 4
+ON_MEMORY: false
 SCALES:
 - 600
 - 1000
@@ -24,9 +24,9 @@ DATASET:
   TEST_CAPTIONS_SET: 'test_captions'
   ROI_SET: 'Annotations'
   IMAGE_SET: 'flickr30k-images'
-  TRAIN_ANNOTATION_FILE: 'full_data_type_phrase_pair_train.csv'
-  VAL_ANNOTATION_FILE: 'full_data_type_phrase_pair_val.csv'
-  TEST_ANNOTATION_FILE: 'full_data_type_phrase_pair_test.csv'
+  TRAIN_ANNOTATION_FILE: 'train.csv'
+  VAL_ANNOTATION_FILE: 'val.csv'
+  TEST_ANNOTATION_FILE: 'test.csv'
   ADD_IMAGE_AS_A_BOX: true
   ZIP_MODE: false
   CACHE_MODE: true
@@ -70,15 +70,11 @@ NETWORK:
   BERT_FROZEN: false
   ENABLE_CNN_REG_LOSS: false
   PHRASE_LOSS_WEIGHT: 1.0
+  FREEZE_BERT: true
+  FREEZE_LAYER: "0,1,2,3,4,5"
   CNN_LOSS_TOP: false
   NO_GROUNDING: true
   SUPERVISE_ATTENTION: "semi-direct"
-  DISTILL_ATTENTION:
-    loss_func: "kl"
-    layers: [4,5,6,7,8,9]
-    factor: 0.95
-
-
   ATTENTION_LOSS_WEIGHT: 1.0
   ATTENTION_NORM_METHOD: "linear"
   EWC_REG: false
@@ -125,7 +121,7 @@ TRAIN:
   RESUME: false
   AUTO_RESUME: true
   BEGIN_EPOCH: 0
-  END_EPOCH: 2
+  END_EPOCH: 4
   OPTIMIZER: 'SGD'
   CLIP_GRAD_NORM: 10
   GRAD_ACCUMULATE_STEPS: 8
@@ -151,3 +147,4 @@ TEST:
   FLIP_PROB: 0
   TEST_EPOCH: 0
   BATCH_IMAGES: 2
+

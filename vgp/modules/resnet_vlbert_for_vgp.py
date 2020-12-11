@@ -150,6 +150,7 @@ class ResNetVLBERT(Module):
         self.init_weight()
 
         self.fix_params()
+        self.freeze_vlbert()
 
     def init_weight(self):
         if not self.config.NETWORK.BLIND:
@@ -173,6 +174,15 @@ class ResNetVLBERT(Module):
         if self.config.NETWORK.BLIND:
             self.vlbert._module.visual_scale_text.requires_grad = False
             self.vlbert._module.visual_scale_object.requires_grad = False
+
+    def freeze_vlbert(self):
+        # print(self.config.NETWORK.FREEZE_BERT)
+        # print(self.config.NETWORK.FREEZE_LAYER)
+        if self.config.NETWORK.FREEZE_BERT:
+            modules = [self.vlbert.encoder.layer[int(i)] for i in self.config.NETWORK.FREEZE_LAYER.split(",")]
+            for module in modules:
+                for param in module.parameters():
+                    param.requires_grad = False
 
     def _collect_obj_reps(self, span_tags, object_reps):
         """
