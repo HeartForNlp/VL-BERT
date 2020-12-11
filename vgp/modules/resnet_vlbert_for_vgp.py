@@ -72,22 +72,33 @@ class ResNetVLBERT(Module):
         if language_pretrained_model_path is None:
             print("Warning: no pretrained language model found, training from scratch!!!")
 
-        self.vlbert = VisualLinguisticBert(config.NETWORK.VLBERT,
-                                           language_pretrained_model_path=language_pretrained_model_path)
-        #
-        # self.fixed_vlbert = VisualLinguisticBert(config.NETWORK.VLBERT,
-        #                                          language_pretrained_model_path=language_pretrained_model_path)
-        # self.fixed_vlbert = copy.deepcopy(self.vlbert)
+
+        if config.NETWORK.RANDOMIZE_VLBERT.RAND:
+            self.vlbert = VisualLinguisticBert(config.NETWORK.VLBERT,
+                                               language_pretrained_model_path=None)
+            self.fixed_vlbert = VisualLinguisticBert(config.NETWORK.VLBERT,
+                                                     language_pretrained_model_path=language_pretrained_model_path)
+            self.load_pretrain_layers()
+
+
+        else:
+            self.vlbert = VisualLinguisticBert(config.NETWORK.VLBERT,
+                                               language_pretrained_model_path=language_pretrained_model_path)
+            self.fixed_vlbert = copy.deepcopy(self.vlbert)
+
+
         self.fixed_vlbert.eval()
         assert self.fixed_vlbert.training == False
 
         # check if two models are the same initially
-        for p1, p2 in zip(self.vlbert.parameters(), self.fixed_vlbert.parameters()):
-            assert p1.data.ne(p2.data).sum() == 0
+        # for p1, p2 in zip(self.vlbert.parameters(), self.fixed_vlbert.parameters()):
+        #     assert p1.data.ne(p2.data).sum() == 0
 
-        # set all the params' require_grad in fixed_vlbert to False
+        # IMPORTANT! set all the params' require_grad in fixed_vlbert to False
         for param in self.fixed_vlbert.parameters():
             param.requires_grad = False
+
+        # for correctness check, randomize the last two layers of vl-bert.
 
         self.for_pretrain = False
         dim = config.NETWORK.VLBERT.hidden_size
@@ -183,6 +194,19 @@ class ResNetVLBERT(Module):
             for module in modules:
                 for param in module.parameters():
                     param.requires_grad = False
+
+    def load_pretrain_layers(self):
+        """Load pretrained model for the freeze layers, randomize the remaining layers"""
+        if self.config.NETWORK.RANDOMIZE_VLBERT:
+            print("load pretrained layers for vlbert: ", self.config.NETWORK.RANDOMIZE_VLBERT.LOAD_LAYERS)
+            for l in self.config.NETWORK.RANDOMIZE_VLBERT.LOAD_LAYERS:
+                self.vlbert.encoder.layer[l] = copy.deepcopy(self.fixed_vlbert.encoder.layer[l])
+
+                # check the model params are correctly loaded
+                for i in range(len(self.vlbert.encoder.layer[l])):
+                    m1, m2 = self.vlbert.encoder.layer[l][i], self.fixed_vlbert.encoder.layer[l][i]
+                    assert m1 == m2
+
 
     def _collect_obj_reps(self, span_tags, object_reps):
         """
