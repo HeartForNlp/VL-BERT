@@ -2,6 +2,7 @@ import os
 import time
 from collections import namedtuple
 import torch
+import logging
 
 try:
     from apex import amp
@@ -185,11 +186,22 @@ def train(net,
                                                  eval_metric=metrics, locals=locals())
                 _multiple_callbacks(batch_end_callbacks, batch_end_params)
 
-            if nbatch % 10000 == 0 and nbatch != 0 and epoch_end_callbacks is not None:
+            if nbatch % 10000 == 0 and nbatch != 0:
+                logging.info("This is epoch {} and batch {}, saving the model".format(epoch, nbatch))
                 print("This is epoch {} and batch {}, saving the model".format(epoch, nbatch))
-                _multiple_callbacks(epoch_end_callbacks, epoch, net, optimizer, writer,
-                                    validation_monitor=validation_monitor)
+                # excute epoch_end_callbacks
+                if validation_monitor is not None:
+                    validation_monitor(epoch, net, optimizer, writer)
+                logging.info("model saved")
                 print("model saved")
+                logging.info("This is epoch {} and batch {}, validating the model".format(epoch, nbatch))
+                print("This is epoch {} and batch {}, validating the model".format(epoch, nbatch))
+                if epoch_end_callbacks is not None:
+                    _multiple_callbacks(epoch_end_callbacks, epoch, net, optimizer, writer,
+                                        validation_monitor=validation_monitor)
+                logging.info("model validated")
+                print("model validated")
+
 
             # update end time
             end_time = time.time()
