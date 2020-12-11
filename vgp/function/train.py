@@ -31,7 +31,7 @@ try:
     from apex.parallel import DistributedDataParallel as Apex_DDP
 except ImportError:
     pass
-    #raise ImportError("Please install apex from https://www.github.com/nvidia/apex if you want to use fp16.")
+    # raise ImportError("Please install apex from https://www.github.com/nvidia/apex if you want to use fp16.")
 
 
 def train_net(args, config):
@@ -142,7 +142,7 @@ def train_net(args, config):
         total_gpus = world_size
 
     else:
-        #os.environ['CUDA_VISIBLE_DEVICES'] = config.GPUS
+        # os.environ['CUDA_VISIBLE_DEVICES'] = config.GPUS
         model = eval(config.MODULE)(config)
         summary_parameters(model, logger)
         shutil.copy(args.cfg, final_output_path)
@@ -198,7 +198,8 @@ def train_net(args, config):
 
     # partial load pretrain state dict
     if config.NETWORK.PARTIAL_PRETRAIN != "":
-        pretrain_state_dict = torch.load(config.NETWORK.PARTIAL_PRETRAIN, map_location=lambda storage, loc: storage)['state_dict']
+        pretrain_state_dict = torch.load(config.NETWORK.PARTIAL_PRETRAIN, map_location=lambda storage, loc: storage)[
+            'state_dict']
         prefix_change = [prefix_change.split('->') for prefix_change in config.NETWORK.PARTIAL_PRETRAIN_PREFIX_CHANGES]
 
         pretrain_state_dict_parsed = {}
@@ -216,7 +217,7 @@ def train_net(args, config):
                 and config.NETWORK.LOAD_REL_HEAD:
             pretrain_state_dict_parsed['module.final_mlp.1.weight'] \
                 = pretrain_state_dict['module.vlbert.relationsip_head.caption_image_relationship.weight'][1:2].float() \
-                - pretrain_state_dict['module.vlbert.relationsip_head.caption_image_relationship.weight'][0:1].float()
+                  - pretrain_state_dict['module.vlbert.relationsip_head.caption_image_relationship.weight'][0:1].float()
             pretrain_state_dict_parsed['module.final_mlp.1.bias'] \
                 = pretrain_state_dict['module.vlbert.relationsip_head.caption_image_relationship.bias'][1:2].float() \
                   - pretrain_state_dict['module.vlbert.relationsip_head.caption_image_relationship.bias'][0:1].float()
@@ -238,7 +239,7 @@ def train_net(args, config):
                                              num_replicas=world_size if args.dist else 1)]
     early_stopping_metric = "sentenceAcc"
     if config.DATASET.PHRASE_CLS:
-        train_metrics_list.append(vgp_metrics.Accuracy(prefix_name="phrase", allreduce=args.dist, 
+        train_metrics_list.append(vgp_metrics.Accuracy(prefix_name="phrase", allreduce=args.dist,
                                                        num_replicas=world_size if args.dist else 1))
         val_metrics_list.append(vgp_metrics.Accuracy(prefix_name="phrase", allreduce=args.dist,
                                                      num_replicas=world_size if args.dist else 1))
@@ -250,7 +251,7 @@ def train_net(args, config):
         train_metrics_list.append(
             vgp_metrics.LossLogger(output_name="ewc_loss", display_name="ewc_loss", allreduce=args.dist,
                                    num_replicas=world_size if args.dist else 1))
-        
+
     for output_name, display_name in config.TRAIN.LOSS_LOGGERS:
         train_metrics_list.append(
             vgp_metrics.LossLogger(output_name, display_name=display_name, allreduce=args.dist,
@@ -271,7 +272,12 @@ def train_net(args, config):
     if config.NETWORK.DISTILL_ATTENTION is not None:
         train_metrics_list.append(
             vgp_metrics.LossLogger("attention_distill_KL_loss", display_name="attention_KL_loss", allreduce=args.dist,
-                                 num_replicas=world_size if args.dist else 1))
+                                   num_replicas=world_size if args.dist else 1))
+
+    if config.NETWORK.DISTILL_CLS is not None:
+        train_metrics_list.append(
+            vgp_metrics.LossLogger("cosine_similarity_cls_loss", display_name="cls_cosine_similarity_loss",
+                                   allreduce=args.dist, num_replicas=world_size if args.dist else 1))
 
     train_metrics = CompositeEvalMetric()
     val_metrics = CompositeEvalMetric()
@@ -308,7 +314,6 @@ def train_net(args, config):
 
     # setup lr step and lr scheduler
 
-
     if config.TRAIN.LR_SCHEDULE == 'plateau':
         print("Warning: not support resuming on plateau lr schedule!")
         lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
@@ -324,15 +329,19 @@ def train_net(args, config):
     elif config.TRAIN.LR_SCHEDULE == 'triangle':
         lr_scheduler = WarmupLinearSchedule(optimizer,
                                             config.TRAIN.WARMUP_STEPS if config.TRAIN.WARMUP else 0,
-                                            t_total=int(config.TRAIN.END_EPOCH * len(train_loader) / config.TRAIN.GRAD_ACCUMULATE_STEPS),
-                                            last_epoch=int(config.TRAIN.BEGIN_EPOCH * len(train_loader) / config.TRAIN.GRAD_ACCUMULATE_STEPS)  - 1)
+                                            t_total=int(config.TRAIN.END_EPOCH * len(
+                                                train_loader) / config.TRAIN.GRAD_ACCUMULATE_STEPS),
+                                            last_epoch=int(config.TRAIN.BEGIN_EPOCH * len(
+                                                train_loader) / config.TRAIN.GRAD_ACCUMULATE_STEPS) - 1)
     elif config.TRAIN.LR_SCHEDULE == 'step':
-        lr_iters = [int(epoch * len(train_loader) / config.TRAIN.GRAD_ACCUMULATE_STEPS) for epoch in config.TRAIN.LR_STEP]
+        lr_iters = [int(epoch * len(train_loader) / config.TRAIN.GRAD_ACCUMULATE_STEPS) for epoch in
+                    config.TRAIN.LR_STEP]
         lr_scheduler = WarmupMultiStepLR(optimizer, milestones=lr_iters, gamma=config.TRAIN.LR_FACTOR,
                                          warmup_factor=config.TRAIN.WARMUP_FACTOR,
                                          warmup_iters=config.TRAIN.WARMUP_STEPS if config.TRAIN.WARMUP else 0,
                                          warmup_method=config.TRAIN.WARMUP_METHOD,
-                                         last_epoch=int(config.TRAIN.BEGIN_EPOCH * len(train_loader) / config.TRAIN.GRAD_ACCUMULATE_STEPS)  - 1)
+                                         last_epoch=int(config.TRAIN.BEGIN_EPOCH * len(
+                                             train_loader) / config.TRAIN.GRAD_ACCUMULATE_STEPS) - 1)
     else:
         raise ValueError("Not support lr schedule: {}.".format(config.TRAIN.LR_SCHEDULE))
 
