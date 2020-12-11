@@ -8,7 +8,7 @@ VAL_FREQUENT: 1
 CHECKPOINT_FREQUENT: 1
 MODEL_PREFIX: 'vl-bert_base_a_res101'
 NUM_WORKERS_PER_GPU: 8
-ON_MEMORY: false
+ON_MEMORY: true
 SCALES:
 - 600
 - 1000
@@ -29,8 +29,8 @@ DATASET:
   TEST_ANNOTATION_FILE: 'full_data_type_phrase_pair_test.csv'
   ADD_IMAGE_AS_A_BOX: true
   ZIP_MODE: false
-  CACHE_MODE: false
-  IGNORE_DB_CACHE: true
+  CACHE_MODE: true
+  IGNORE_DB_CACHE: false
   PHRASE_CLS: true
   SMALL: false
   NEGATIVE_SAMPLING: 'hard'

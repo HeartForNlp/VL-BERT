@@ -75,7 +75,7 @@ class ResNetVLBERT(Module):
         #
         # self.fixed_vlbert = VisualLinguisticBert(config.NETWORK.VLBERT,
         #                                          language_pretrained_model_path=language_pretrained_model_path)
-        self.fixed_vlbert = copy.deepcopy(self.vlbert)
+        # self.fixed_vlbert = copy.deepcopy(self.vlbert)
         self.fixed_vlbert.eval()
         assert self.fixed_vlbert.training == False
 
