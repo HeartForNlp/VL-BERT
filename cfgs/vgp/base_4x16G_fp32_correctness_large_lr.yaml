@@ -1,8 +1,8 @@
 ---
 RNG_SEED: 12345
-OUTPUT_PATH: './output/vl-bert/phrasalVGP/semidirect/kl-correctness2'
+OUTPUT_PATH: './output/vl-bert/phrasalVGP/semidirect/kl-correctness3'
 MODULE: ResNetVLBERT
-GPUS: '0,1,2,3'
+GPUS: '0,1'
 LOG_FREQUENT: 100
 VAL_FREQUENT: 1
 CHECKPOINT_FREQUENT: 1
@@ -138,7 +138,8 @@ TRAIN:
   GRAD_ACCUMULATE_STEPS: 8
   LR_FACTOR: 0.1
   LR_STEP: "14,18"
-  LR: 7.0e-5
+#  LR: 7.0e-3
+  LR: 7.0e-4
   WD: 0.0001
   WARMUP: true
   WARMUP_METHOD: 'linear'

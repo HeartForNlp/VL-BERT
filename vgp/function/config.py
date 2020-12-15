@@ -104,9 +104,13 @@ _C.NETWORK.DISTILL_ATTENTION = ""
 #     'layers': [4, 5, 6, 7, 8, 9],
 #     'factor': 0.5
 # }
-_C.NETWORK.DISTILL_CLS = {
-    'factor': 0.5
-}
+_C.NETWORK.DISTILL_CLS = ""
+# {
+#     'factor': 0.5
+# }
+_C.NETWORK.FREEZE_BERT = False
+_C.NETWORK.FREEZE_LAYER = ""
+_C.NETWORK.RANDOMIZE_VLBERT = None
 
 
 

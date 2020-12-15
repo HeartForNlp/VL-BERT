@@ -73,18 +73,15 @@ class ResNetVLBERT(Module):
             print("Warning: no pretrained language model found, training from scratch!!!")
 
 
-        if config.NETWORK.RANDOMIZE_VLBERT.RAND:
-            self.vlbert = VisualLinguisticBert(config.NETWORK.VLBERT,
-                                               language_pretrained_model_path=None)
-            self.fixed_vlbert = VisualLinguisticBert(config.NETWORK.VLBERT,
-                                                     language_pretrained_model_path=language_pretrained_model_path)
-            self.load_pretrain_layers()
+        self.vlbert = VisualLinguisticBert(config.NETWORK.VLBERT,
+                                                 language_pretrained_model_path=language_pretrained_model_path)
+        self.fixed_vlbert = copy.deepcopy(self.vlbert)
 
+        # self.load_pretrain_layers()
+        if config.NETWORK.RANDOMIZE_VLBERT and config.NETWORK.RANDOMIZE_VLBERT.RAND:
+            print("goint to drop")
+            self.drop_pretrain_layers(config.NETWORK.RANDOMIZE_VLBERT.RAND_LAYERS)
 
-        else:
-            self.vlbert = VisualLinguisticBert(config.NETWORK.VLBERT,
-                                               language_pretrained_model_path=language_pretrained_model_path)
-            self.fixed_vlbert = copy.deepcopy(self.vlbert)
 
 
         self.fixed_vlbert.eval()
@@ -190,6 +187,7 @@ class ResNetVLBERT(Module):
         # print(self.config.NETWORK.FREEZE_BERT)
         # print(self.config.NETWORK.FREEZE_LAYER)
         if self.config.NETWORK.FREEZE_BERT:
+            print("Freeze layers: ", self.config.NETWORK.FREEZE_LAYER)
             modules = [self.vlbert.encoder.layer[int(i)] for i in self.config.NETWORK.FREEZE_LAYER.split(",")]
             for module in modules:
                 for param in module.parameters():
@@ -203,10 +201,35 @@ class ResNetVLBERT(Module):
                 self.vlbert.encoder.layer[l] = copy.deepcopy(self.fixed_vlbert.encoder.layer[l])
 
                 # check the model params are correctly loaded
-                for i in range(len(self.vlbert.encoder.layer[l])):
-                    m1, m2 = self.vlbert.encoder.layer[l][i], self.fixed_vlbert.encoder.layer[l][i]
-                    assert m1 == m2
+                for p1, p2 in zip(self.vlbert.encoder.layer[l].parameters(), self.fixed_vlbert.encoder.layer[l].parameters()):
+                    assert p1.data.ne(p2.data).sum() == 0
 
+    def drop_pretrain_layers(self, layers):
+        from external.pytorch_pretrained_bert.modeling import BertLayerNorm
+        for l in layers:
+            layer_modules = self.vlbert.encoder.layer[l].modules()
+            for i, module in enumerate(layer_modules):
+                print(i)
+                print(module)
+
+                if isinstance(module, (nn.Linear, nn.Embedding)):
+                    # Slightly different from the TF version which uses truncated_normal for initialization
+                    # cf https://github.com/pytorch/pytorch/pull/5617
+                    module.weight.data.normal_(mean=0.0, std=self.config.NETWORK.VLBERT.initializer_range)
+                    print("init for linear")
+                elif isinstance(module, BertLayerNorm):
+                    module.bias.data.zero_()
+                    module.weight.data.fill_(1.0)
+                    print("init for bert layer norm")
+                if isinstance(module, nn.Linear) and module.bias is not None:
+                    module.bias.data.zero_()
+                    print("init for bias")
+
+
+            for p1, p2 in zip(self.vlbert.encoder.layer[l].parameters(),
+                              self.fixed_vlbert.encoder.layer[l].parameters()):
+                assert p1.data.ne(p2.data).sum() > 0
+                print(p1.data.ne(p2.data).sum())
 
     def _collect_obj_reps(self, span_tags, object_reps):
         """
@@ -393,7 +416,7 @@ class ResNetVLBERT(Module):
 
         ###########################################
         outputs = {}
-        print(pooled_rep.size())
+        # print(pooled_rep.size())
 
         # sentence classification
         sentence_logits = self.sentence_cls(pooled_rep)
@@ -475,7 +498,6 @@ class ResNetVLBERT(Module):
                 #     print("bar")
                 #     assert fixed_attention_probs[i].data.ne(attention_probs[i].data).sum() == 0
                 if self.distill_attention:
-                    print("using distill attention")
                     distill_layers = self.distill_attention.get("layers", [4, 5, 6, 7, 8, 9])
                     kl_loss = get_attention_KL_div_loss(fixed_attention_probs, attention_probs, distill_layers)
                     outputs.update({"attention_distill_KL_loss": kl_loss})
@@ -483,7 +505,6 @@ class ResNetVLBERT(Module):
                     loss = (1 - factor) * loss + factor * kl_loss
 
                 if self.distill_cls:
-                    print("using distill cls")
                     cls_loss = get_cls_cos_similarity_loss(fixed_pooled_rep, pooled_rep)
                     outputs.update({"cosine_similarity_cls_loss": cls_loss})
                     factor = self.distill_cls.factor
